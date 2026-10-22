@@ -214,6 +214,8 @@ pub struct MenuState {
     pub rename: Option<Rename>,
     /// A delete waiting for its confirmation (it takes or breaks other features).
     pub confirm: Option<crate::delete::Pending>,
+    /// Identical copies Extract to File found, waiting to be linked too.
+    pub link_copies: Option<crate::linked_source::Copies>,
     /// The Properties window: title and measurements.
     pub props: Option<(String, Value)>,
     /// The viewport menu opened over something: it offers Select Other.
@@ -797,6 +799,8 @@ fn component_items(app: &SolveApp, id: u64) -> Vec<Item> {
     v.push(act("ui.properties", "Properties", "measure").with(json!({ "component": id })));
     if doc.links.contains_key(&id) {
         v.push(act("ui.relinkSource", "Relink Source (All Instances)…", "update").with(json!({"component": id})));
+    } else if id != 0 && app.session.can_extract(id) {
+        v.push(act("ui.extractComponent", "Extract to File…", "export").with(json!({"component": id})));
     }
     if id == 0 {
         v.push(act("ui.designProperties", "Design Properties", "settings"));
@@ -992,6 +996,11 @@ pub fn run_item(app: &mut SolveApp, item: &Item, at: Pos2) {
         "ui.relinkSource" => {
             if let Some(component) = id_of(&p, "component") {
                 crate::linked_source::start(app, component);
+            }
+        }
+        "ui.extractComponent" => {
+            if let Some(component) = id_of(&p, "component") {
+                crate::linked_source::extract(app, component);
             }
         }
         "ui.copy" => drop(crate::edit_clipboard::copy(app)),

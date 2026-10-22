@@ -18,6 +18,16 @@ user parameters remain shared; retained external links and omitted cross-boundar
 records are reported. Unsupported destructive links refuse the entire copy. See
 [individual-instance and copy details](https://github.com/bherbruck/solidcraft/blob/main/docs/occurrence-workflows.md).
 
+**Extract to File** (`component.extract`, in a component's right-click menu) moves a component
+into a design of its own: its sketches, features, bodies, subcomponents and the joints among them
+go to the new `.solidcraft` file at its origin, with the parameters they use, and the component
+becomes linked to that file, as **Insert Design** makes it. Its placements and the joints to the
+rest of the assembly stay. Components whose own history builds the same bodies are offered to
+become placements of the new link too (`component.copies`, `component.replace_with_link`).
+The menu offers Extract only for a component that can leave: nothing outside uses its sketches
+or changes its bodies, no bodies were moved into or out of it, and none of its subcomponents is
+joined to the rest of the design.
+
 **Joints** (`joint.create`, J) connect two components by joint origins that snap to faces, edges,
 circles and vertices: rigid, revolute, slider, cylindrical, pin-slot, planar and ball, with
 offsets, flip and limits. **As-built Joint** keeps the current position, **Rigid Group** locks
