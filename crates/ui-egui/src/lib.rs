@@ -1387,6 +1387,10 @@ impl SolveApp {
             self.finish_sketch();
             return;
         }
+        if id == "component.finish_edit" {
+            edit_in_place::finish(self);
+            return;
+        }
         if id == "sketch.cancel" {
             self.cancel_sketch();
             return;
@@ -2022,6 +2026,9 @@ impl SolveApp {
         file_load::tick(self, ctx);
         save_job::tick(self, false);
         edit_in_place::tick(self);
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1) || i.key_pressed(egui::Key::BrowserBack)) {
+            edit_in_place::back(self);
+        }
         if self.saving.is_some() || self.edit_in_place.refreshing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }

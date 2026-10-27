@@ -1,6 +1,7 @@
 {
   "en": {
     "settings.double_click_components": "Double-click a component to activate it, or to edit a linked one in place",
+    "ui.heading_finish_editing": "FINISH EDITING",
     "ui.edit_in_place": "Edit in Place",
     "ui.edit_in_place_assembly_closed": "{name} is no longer open",
     "ui.edit_in_place_banner": "Editing in {name}",
@@ -9,10 +10,11 @@
     "ui.edit_in_place_refreshing": "Updating links in {name}…",
     "ui.edit_in_place_save_first": "Save the assembly first: its linked designs are found from its file",
     "ui.edit_in_place_saved_elsewhere": "The part was saved to another file; the assembly still links {name}",
-    "ui.finish_editing": "Finish Editing"
+    "cmd.component_finish_edit": "Finish Editing"
   },
   "ar": {
     "settings.double_click_components": "انقر نقرًا مزدوجًا على مكوّن لتنشيطه، أو لتحرير مكوّن مرتبط في مكانه",
+    "ui.heading_finish_editing": "إنهاء التحرير",
     "ui.edit_in_place": "تحرير في المكان",
     "ui.edit_in_place_assembly_closed": "{name} لم يعد مفتوحًا",
     "ui.edit_in_place_banner": "تحرير داخل {name}",
@@ -21,10 +23,11 @@
     "ui.edit_in_place_refreshing": "جارٍ تحديث الروابط في {name}…",
     "ui.edit_in_place_save_first": "احفظ التجميع أولاً: يُعثر على تصاميمه المرتبطة انطلاقًا من ملفه",
     "ui.edit_in_place_saved_elsewhere": "حُفظ الجزء في ملف آخر؛ ما زال التجميع مرتبطًا بـ {name}",
-    "ui.finish_editing": "إنهاء التحرير"
+    "cmd.component_finish_edit": "إنهاء التحرير"
   },
   "de": {
     "settings.double_click_components": "Doppelklick auf eine Komponente aktiviert sie oder bearbeitet eine verknüpfte an Ort und Stelle",
+    "ui.heading_finish_editing": "BEARBEITUNG BEENDEN",
     "ui.edit_in_place": "An Ort und Stelle bearbeiten",
     "ui.edit_in_place_assembly_closed": "{name} ist nicht mehr geöffnet",
     "ui.edit_in_place_banner": "Bearbeitung in {name}",
@@ -33,10 +36,11 @@
     "ui.edit_in_place_refreshing": "Verknüpfungen in {name} werden aktualisiert…",
     "ui.edit_in_place_save_first": "Zuerst die Baugruppe speichern: ihre verknüpften Designs werden von ihrer Datei aus gefunden",
     "ui.edit_in_place_saved_elsewhere": "Das Teil wurde in eine andere Datei gespeichert; die Baugruppe verknüpft weiterhin {name}",
-    "ui.finish_editing": "Bearbeitung beenden"
+    "cmd.component_finish_edit": "Bearbeitung beenden"
   },
   "he": {
     "settings.double_click_components": "לחיצה כפולה על רכיב מפעילה אותו, או עורכת רכיב מקושר במקומו",
+    "ui.heading_finish_editing": "סיום עריכה",
     "ui.edit_in_place": "עריכה במקום",
     "ui.edit_in_place_assembly_closed": "{name} כבר אינו פתוח",
     "ui.edit_in_place_banner": "עריכה בתוך {name}",
@@ -45,10 +49,11 @@
     "ui.edit_in_place_refreshing": "מעדכן קישורים ב-{name}…",
     "ui.edit_in_place_save_first": "יש לשמור קודם את ההרכבה: התכנים המקושרים שלה נמצאים לפי הקובץ שלה",
     "ui.edit_in_place_saved_elsewhere": "החלק נשמר לקובץ אחר; ההרכבה עדיין מקושרת אל {name}",
-    "ui.finish_editing": "סיום עריכה"
+    "cmd.component_finish_edit": "סיום עריכה"
   },
   "ja": {
     "settings.double_click_components": "コンポーネントをダブルクリックしてアクティブにする、またはリンクされたものをその場で編集する",
+    "ui.heading_finish_editing": "編集を終了",
     "ui.edit_in_place": "その場で編集",
     "ui.edit_in_place_assembly_closed": "{name} はもう開いていません",
     "ui.edit_in_place_banner": "{name} 内で編集中",
@@ -57,10 +62,11 @@
     "ui.edit_in_place_refreshing": "{name} のリンクを更新中…",
     "ui.edit_in_place_save_first": "先にアセンブリを保存してください。リンクされたデザインはそのファイルから見つけます",
     "ui.edit_in_place_saved_elsewhere": "部品は別のファイルに保存されました。アセンブリは引き続き {name} にリンクしています",
-    "ui.finish_editing": "編集を終了"
+    "cmd.component_finish_edit": "編集を終了"
   },
   "vi": {
     "settings.double_click_components": "Nhấp đúp vào một thành phần để kích hoạt nó, hoặc chỉnh sửa tại chỗ một thành phần liên kết",
+    "ui.heading_finish_editing": "KẾT THÚC CHỈNH SỬA",
     "ui.edit_in_place": "Chỉnh sửa tại chỗ",
     "ui.edit_in_place_assembly_closed": "{name} không còn mở",
     "ui.edit_in_place_banner": "Đang chỉnh sửa trong {name}",
@@ -69,10 +75,11 @@
     "ui.edit_in_place_refreshing": "Đang cập nhật liên kết trong {name}…",
     "ui.edit_in_place_save_first": "Hãy lưu cụm lắp ráp trước: các thiết kế liên kết của nó được tìm từ tệp của nó",
     "ui.edit_in_place_saved_elsewhere": "Chi tiết đã được lưu vào tệp khác; cụm lắp ráp vẫn liên kết với {name}",
-    "ui.finish_editing": "Kết thúc chỉnh sửa"
+    "cmd.component_finish_edit": "Kết thúc chỉnh sửa"
   },
   "zh": {
     "settings.double_click_components": "双击组件以激活它，或在原位编辑链接组件",
+    "ui.heading_finish_editing": "完成编辑",
     "ui.edit_in_place": "原位编辑",
     "ui.edit_in_place_assembly_closed": "{name} 已不再打开",
     "ui.edit_in_place_banner": "正在 {name} 中编辑",
@@ -81,6 +88,6 @@
     "ui.edit_in_place_refreshing": "正在更新 {name} 中的链接…",
     "ui.edit_in_place_save_first": "请先保存装配体：其链接设计根据其文件查找",
     "ui.edit_in_place_saved_elsewhere": "零件已保存到其他文件；装配体仍链接 {name}",
-    "ui.finish_editing": "完成编辑"
+    "cmd.component_finish_edit": "完成编辑"
   }
 }

@@ -1,0 +1,23 @@
+use std::sync::Arc;
+
+use serde_json::json;
+
+use super::FinishEditParams;
+use crate::Session;
+use crate::schema::input_schema_for;
+use crate::schema::tests::assert_keys;
+
+#[test]
+fn schemas_and_the_key_check_agree() {
+    assert_keys(input_schema_for::<FinishEditParams>(), &[]);
+}
+
+#[test]
+fn finishing_an_edit_outside_the_window_changes_nothing() {
+    let mut s = Session::default();
+    s.execute("solid.box", &json!({"length": 10, "width": 10, "height": 10})).unwrap_or_else(|e| panic!("{e}"));
+    let (doc, undo) = (s.doc.clone(), s.undo.len());
+    let r = s.execute("component.finish_edit", &json!({})).unwrap_or_else(|e| panic!("{e}"));
+    assert!(r.as_object().is_some_and(serde_json::Map::is_empty), "{r}");
+    assert!(Arc::ptr_eq(&doc, &s.doc) && s.undo.len() == undo);
+}

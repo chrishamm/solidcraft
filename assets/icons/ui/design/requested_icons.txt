@@ -101,6 +101,7 @@ eye	false
 fastener	false
 fillet	false
 finish	false
+finish_edit	false
 fit	false
 fit_section	false
 flange	false

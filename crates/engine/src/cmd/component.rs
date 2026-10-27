@@ -11,7 +11,11 @@ use solidcraft_geom::Vec3;
 
 use super::CommandSpec;
 use crate::params::{bad, bool_, str_, string_list, vec3};
+use crate::schema::component::{FinishEditParams, FinishEditResult};
+use crate::schema::{TypedContract, output_schema_for};
 use crate::{Result, Session};
+
+const FINISH_EDIT_CONTRACT: TypedContract<FinishEditParams> = TypedContract::new();
 
 #[path = "component_drag.rs"]
 mod drag;
@@ -43,6 +47,13 @@ pub static COMMANDS: &[CommandSpec] = &[
         .icon("component")
         .params("bodies: [names] → one new component per body, named after it"),
     CommandSpec::new("component.activate", "Activate Component", activate).icon("activate").noundo().params("component: id or name (0 or \"root\" for the design); occurrence?, path?: exact placement used to author shared geometry"),
+    CommandSpec::new("component.finish_edit", "Finish Editing", crate::checked!("component.finish_edit", finish_edit))
+        .icon("finish_edit")
+        .noundo()
+        .doc_only()
+        .contract(&FINISH_EDIT_CONTRACT)
+        .output(output_schema_for::<FinishEditResult>)
+        .params("no parameters → in the app window: save the linked design edited in place and go back to its assembly; elsewhere nothing changes"),
     CommandSpec::new("component.list", "List Components", list).icon("list").noundo().params(
         "compact?: bool (counts of bodies, features, sketches and construction planes instead of their names; occurrences leave out \
          identity transforms; children as occurrence ids); bodies?: bool (with compact: body names, not their count)",
@@ -191,6 +202,12 @@ pub(super) fn new_component(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn from_bodies(s: &mut Session, p: &Value) -> Result<Value> {
     transfer::from_bodies(s, p)
+}
+
+/// The app window finishes an edit in place (it knows the part's tab and its assembly); here
+/// there is none, so nothing changes.
+fn finish_edit(_s: &mut Session, _p: &Value) -> Result<Value> {
+    serde_json::to_value(FinishEditResult::default()).map_err(|e| crate::EngineError::Other(e.to_string()))
 }
 
 fn activate(s: &mut Session, p: &Value) -> Result<Value> {

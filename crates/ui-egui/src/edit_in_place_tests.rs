@@ -355,6 +355,45 @@ fn activate_only_activates_and_edit_in_place_opens_the_placement_right_clicked()
 }
 
 #[test]
+fn finish_editing_is_a_model_tab_button_only_while_a_part_is_edited_in_place() {
+    let mut f = assembly("ribbon");
+    let mut h = crate::scenario::Harness::new();
+    h.app = std::mem::replace(&mut f.app, SolveApp::new(Session::default(), Default::default()));
+    h.app.home.open = false;
+    h.frames(3);
+    assert!(crate::scenario::rect_of("panel:MODEL:FINISH EDITING").is_none(), "no edit in place, no button");
+    double_click_component(&mut h.app, json!({"component": f.plate}));
+    settle(&mut h.app);
+    h.frames(3);
+    assert!(crate::scenario::rect_of("panel:MODEL:FINISH EDITING").is_some(), "the part's MODEL tab ends with Finish Editing");
+    h.app.start("component.finish_edit");
+    settle(&mut h.app);
+    h.frames(3);
+    assert!(h.app.edit_in_place.active.is_none());
+    assert_eq!(h.app.docs.count(), 1);
+    assert!(crate::scenario::rect_of("panel:MODEL:FINISH EDITING").is_none());
+}
+
+#[test]
+fn the_back_button_finishes_the_edit_unless_a_dialog_is_open() {
+    let mut f = assembly("back");
+    back(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1, "nothing is edited in place: nothing happens");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.start("solid.box");
+    assert!(f.app.dialog.is_some());
+    back(&mut f.app);
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_some() && f.app.dialog.is_some(), "the open dialog keeps the edit");
+    crate::dialogs::cancel(&mut f.app);
+    back(&mut f.app);
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_none());
+    assert_eq!(f.app.docs.count(), 1);
+}
+
+#[test]
 fn turned_off_or_unsaved_double_clicking_a_linked_component_does_what_it_did() {
     let mut f = assembly("off");
     f.app.preferences.double_click_components = false;

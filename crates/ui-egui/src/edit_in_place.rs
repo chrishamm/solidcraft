@@ -312,6 +312,14 @@ pub(crate) fn tick(app: &mut SolveApp) {
     }
 }
 
+/// The mouse's back button (or a keyboard's Back key) pressed: Finish Editing, unless a dialog, a
+/// tool or a sketch is open in the part.
+pub(crate) fn back(app: &mut SolveApp) {
+    if app.edit_in_place.active.is_some() && app.dialog.is_none() && app.tool.is_none() && app.session.active_sketch.is_none() {
+        finish(app);
+    }
+}
+
 /// What the scene key needs of the edit: the assembly picture shown (0: none).
 pub(crate) fn scene_key(app: &SolveApp) -> usize {
     app.edit_in_place.active.as_ref().map_or(0, |c| Arc::as_ptr(&c.triangles) as usize)
@@ -331,27 +339,18 @@ pub(crate) fn draw_context(app: &SolveApp, sc: &mut GpuScene) {
     }
 }
 
-/// Above the browser's rows while a part is edited in place: which assembly it is in, and
-/// Finish Editing.
-pub(crate) fn browser_strip(app: &mut SolveApp, ui: &mut egui::Ui) {
+/// Above the browser's rows while a part is edited in place: which assembly it is in (Finish
+/// Editing is on the MODEL tab).
+pub(crate) fn browser_strip(app: &SolveApp, ui: &mut egui::Ui) {
     let Some(context) = &app.edit_in_place.active else { return };
     let t = Tokens::get();
-    let refreshing = app.edit_in_place.refreshing();
-    let key = if refreshing { "ui.edit_in_place_refreshing" } else { "ui.edit_in_place_banner" };
+    let key = if app.edit_in_place.refreshing() { "ui.edit_in_place_refreshing" } else { "ui.edit_in_place_banner" };
     let text = crate::i18n::format(key, &[("name", &context.assembly_name)]);
-    let mut finish_clicked = false;
     ui.horizontal(|ui| {
         ui.add_space(t.space_6);
         crate::ui_kit::text(ui, &text, crate::ui_kit::Text::Hint("edit_in_place"));
-        let label = crate::i18n::tr("ui.finish_editing");
-        let button = ui.add_enabled_ui(!refreshing, |ui| crate::ui_kit::button(ui, label, crate::ui_kit::Button::Small)).inner;
-        crate::scenario::publish_handle("edit_in_place:finish", button.rect.center());
-        finish_clicked = button.clicked();
     });
     ui.add_space(t.space_3);
-    if finish_clicked {
-        finish(app);
-    }
 }
 
 #[cfg(test)]
