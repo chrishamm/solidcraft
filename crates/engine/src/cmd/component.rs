@@ -53,7 +53,10 @@ pub static COMMANDS: &[CommandSpec] = &[
         .doc_only()
         .contract(&FINISH_EDIT_CONTRACT)
         .output(output_schema_for::<FinishEditResult>)
-        .params("no parameters → in the app window: save the linked design edited in place and go back to its assembly; elsewhere nothing changes"),
+        .params(
+            "no parameters → in the app window: go back from the linked design edited in place to its assembly, which reads it again; \
+             fails while the design has unsaved changes (run file.save first) or something is open in it; elsewhere nothing changes",
+        ),
     CommandSpec::new("component.list", "List Components", list).icon("list").noundo().params(
         "compact?: bool (counts of bodies, features, sketches and construction planes instead of their names; occurrences leave out \
          identity transforms; children as occurrence ids); bodies?: bool (with compact: body names, not their count)",

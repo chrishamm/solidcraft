@@ -370,9 +370,10 @@ To edit a linked part where it sits, double-click it, in the Browser or on one o
 the view, or choose **Edit in Place** from its menu. Its design opens in a tab of its own with the
 rest of the assembly drawn faded around it, at the placement you picked, and the part's own
 history, Browser and commands work as usual. **Update Links** there also reads the assembly's
-links again and redraws it. **Finish Editing** (`component.finish_edit`), at the right end of the
+links again and redraws it. **Finish Edit** (`component.finish_edit`), at the right end of the
 **MODEL** tab, or the mouse's back button, saves the part and goes back to the assembly, which
-takes up the change; the part's tab closes again when the edit opened it. **Activate** still makes
+takes up the change; the part's tab closes again when the edit opened it. Run as a command (by
+an agent, for example), it does not save: the part must be saved first. **Activate** still makes
 a linked component the active one without opening it, and a double-click on a component that
 is not linked activates it. **Double-click a component to activate it, or to edit a linked one in
 place** (Preferences, Design, `double_click_components`) turns this off: a double-click in the

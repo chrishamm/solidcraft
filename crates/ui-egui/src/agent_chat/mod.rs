@@ -516,6 +516,10 @@ impl AgentChat {
     pub fn state(&self) -> State {
         self.state.unwrap_or(State::Off)
     }
+    #[cfg(test)]
+    pub(crate) fn set_state(&mut self, state: State) {
+        self.state = Some(state);
+    }
     fn push(&mut self, item: Item) {
         if self.items.len() >= MAX_ITEMS {
             self.items.drain(..MAX_ITEMS / 10);

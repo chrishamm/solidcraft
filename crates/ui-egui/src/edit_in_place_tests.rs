@@ -153,8 +153,11 @@ fn update_links_run_as_a_command_in_the_part_refreshes_the_assembly_too() {
     double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     save_box(&f.post_file, [10.0, 10.0, 10.0], true);
-    f.app.run("component.update_links", json!({})).unwrap();
-    assert!(f.app.edit_in_place.refreshing());
+    let mut h = crate::scenario::Harness::new();
+    h.app = std::mem::replace(&mut f.app, SolveApp::new(Session::default(), Default::default()));
+    // In any spelling the engine takes; the call may take the refresh up before it answers
+    h.call("engine.execute", json!({"command": "Component.Update_Links"}));
+    f.app = std::mem::replace(&mut h.app, SolveApp::new(Session::default(), Default::default()));
     settle(&mut f.app);
     assert!(showing(&f.app, &f.plate_file));
     let after = context(&f.app);
@@ -474,14 +477,15 @@ fn finish_editing_is_sent_on_its_own_not_in_a_batch_or_script() {
     h.app = std::mem::replace(&mut f.app, SolveApp::new(Session::default(), Default::default()));
     double_click_component(&mut h.app, json!({"component": f.plate}));
     settle(&mut h.app);
-    let steps = json!([{"command": "solid.box", "params": {"length": 1, "width": 1, "height": 1}}, {"command": "component.finish_edit"}]);
+    let steps = json!([{"command": "solid.box", "params": {"length": 1, "width": 1, "height": 1}}, {"command": "Component.Finish_Edit"}]);
     for (method, params) in [("engine.batch", json!({"commands": steps})), ("engine.script", json!({"commands": steps}))] {
         let reply = h.call(method, params);
         assert!(reply.to_string().contains("switches to another design"), "{method}: {reply}");
         assert!(showing(&h.app, &f.plate_file) && h.app.edit_in_place.active.is_some(), "{method}");
     }
     assert_eq!(volume(&h.app), 6000.0, "no step ran");
-    let reply = h.call("engine.execute", json!({"command": "component.finish_edit"}));
+    // Any spelling the engine takes finishes, not just the exact one
+    let reply = h.call("engine.execute", json!({"command": "Component.Finish_Edit"}));
     settle(&mut h.app);
     assert!(h.app.edit_in_place.active.is_none(), "{reply}");
     assert_eq!(h.app.docs.count(), 1);
@@ -512,9 +516,12 @@ fn a_dialog_open_in_the_assembly_keeps_a_double_click_from_leaving_it() {
     let mut f = assembly("assembly-dialog");
     f.app.start("solid.box");
     assert!(f.app.dialog.is_some());
+    let active = f.app.session.active_component;
     double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     assert!(f.app.dialog.is_some(), "the dialog stays");
+    assert_eq!(f.app.session.active_component, active, "nor is the component activated under it");
+    assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", f.app.status);
     assert_eq!(f.app.docs.count(), 1);
     assert!(f.app.edit_in_place.active.is_none() && f.app.edit_in_place.pending.is_none());
     let edit = context_menu::items(&f.app, &Target::Component { id: f.plate }).into_iter().find(|i| i.id == "ui.editInPlace").unwrap();
@@ -559,11 +566,60 @@ fn what_is_done_in_the_assembly_while_it_refreshes_stays() {
 }
 
 #[test]
-fn the_ribbon_button_reads_finish_edit_in_every_language() {
+fn the_ribbon_button_reads_finish_edit_not_a_surface_finish() {
     // A bare "Finish" is a surface finish in other catalogs (German "Oberfläche")
     let label = crate::workspace::ribbon_button_label(solidcraft_engine::find_command("component.finish_edit").unwrap());
     assert_eq!(label, "Finish Edit");
     assert_eq!(crate::i18n::Locale::for_language("de").label(label), "Bearbeitung beenden");
+    for language in ["ar", "he", "ja", "vi", "zh"] {
+        assert_ne!(crate::i18n::Locale::for_language(language).label(label), label, "{language}");
+    }
+}
+
+#[test]
+fn finish_editing_waits_for_the_parts_agent_to_end_its_turn() {
+    let mut f = assembly("agent");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.agent_chat.set_state(crate::agent_chat::State::Busy);
+    let e = f.app.run("component.finish_edit", json!({})).unwrap_err();
+    assert!(e.contains("agent"), "{e}");
+    finish(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file) && f.app.edit_in_place.active.is_some());
+    assert!(f.app.status.as_ref().is_some_and(|(s, _, error)| *error && s.contains("agent")), "{:?}", f.app.status);
+    // An idle chat goes with the tab, as closing it would take it
+    f.app.agent_chat.set_state(crate::agent_chat::State::Ready);
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+}
+
+#[test]
+fn a_refusal_is_one_message() {
+    let mut f = assembly("one-message");
+    crate::messages::control(&mut f.app, &json!({"clear": true}));
+    assert!(f.app.run("component.finish_edit", json!({})).is_err());
+    let messages = crate::messages::control(&mut f.app, &json!({}));
+    let shown: Vec<_> =
+        messages["messages"].as_array().unwrap().iter().filter(|m| m["text"].as_str().is_some_and(|t| t.contains("edited in place"))).collect();
+    assert!(shown.len() == 1 && shown[0]["count"] == 1, "{shown:?}");
+}
+
+#[test]
+fn a_part_saved_while_the_assembly_refreshes_is_read_when_the_edit_finishes() {
+    let mut f = assembly("saved-meanwhile");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    // Saved before the refresh is taken up
+    f.app.run("solid.box", json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
+    f.app.run("file.save", json!({})).unwrap();
+    settle(&mut f.app);
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!((volume(&f.app) - 8250.0).abs() < 1e-6, "the post's change and the part's: {}", volume(&f.app));
 }
 
 #[test]

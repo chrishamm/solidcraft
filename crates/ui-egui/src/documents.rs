@@ -247,30 +247,18 @@ pub(crate) fn session_at<'a>(app: &'a SolveApp, path: &str) -> Option<&'a Sessio
     app.docs.slots.iter().flatten().map(|s| &s.session).find(|s| saved_at(s))
 }
 
-/// The design in tab `i` has an agent chat running (closing the tab would end it).
-pub(crate) fn chat_running_at(app: &SolveApp, i: usize) -> bool {
-    let chat = if i == app.docs.active {
-        &app.agent_chat
+/// The open design saved at `path` read every link again without an error, from the files as
+/// `stamps` found them: its record of them (`Documents::link_stamps`, or its tab's) is now that.
+pub(crate) fn record_stamps_at(app: &mut SolveApp, path: &str, stamps: &[(u64, crate::linked_source::Stamp)]) {
+    let record = if app.session.path.as_deref().is_some_and(|p| same_path(p, path)) {
+        &mut app.docs.link_stamps
     } else {
-        let Some(slot) = app.docs.slots.get(i).and_then(Option::as_ref) else { return false };
-        &slot.agent_chat
+        let saved_at = |s: &DocSlot| s.session.path.as_deref().is_some_and(|p| same_path(p, path));
+        let Some(slot) = app.docs.slots.iter_mut().flatten().find(|s| saved_at(s)) else { return };
+        &mut slot.link_stamps
     };
-    !matches!(chat.state(), crate::agent_chat::State::Off | crate::agent_chat::State::Exited)
-}
-
-/// The open design saved at `path` read every link again without an error: its record of them
-/// (`Documents::link_stamps`, or its tab's) is now its files as they are.
-pub(crate) fn read_again_at(app: &mut SolveApp, path: &str) {
-    if app.session.path.as_deref().is_some_and(|p| same_path(p, path)) {
-        crate::linked_source::read_again(app, None);
-        return;
-    }
-    let on = app.preferences.update_changed_links;
-    let saved_at = |s: &DocSlot| s.session.path.as_deref().is_some_and(|p| same_path(p, path));
-    if let Some(slot) = app.docs.slots.iter_mut().flatten().find(|s| saved_at(s)) {
-        for (c, s) in crate::linked_source::stamps_of(&mut slot.session, on) {
-            crate::linked_source::record(&mut slot.link_stamps, c, s);
-        }
+    for (c, s) in stamps {
+        crate::linked_source::record(record, *c, *s);
     }
 }
 

@@ -991,12 +991,11 @@ impl SolveApp {
     /// Host effects shared by directly executed and already evaluated commands.
     pub(crate) fn command_completed(&mut self, id: &str, r: Result<Value, String>) -> Result<Value, String> {
         // The engine has no edit in place to finish; the window does, and says when it can't.
-        let r = if id == "component.finish_edit" { r.and_then(|v| edit_in_place::finish_command(self).map(|()| v)) } else { r };
+        let finish_edit = solidcraft_engine::find_command(id).is_some_and(|spec| spec.id == "component.finish_edit");
+        let r = if finish_edit { r.and_then(|v| edit_in_place::finish_command(self).map(|()| v)) } else { r };
         if let Ok(v) = &r {
             match id {
                 "view.fit" | "view.home" => self.frame_view(id == "view.home"),
-                // Run as a command, it reaches no `start`: the assembly around the part follows here.
-                "component.update_links" if self.edit_in_place.active.is_some() => edit_in_place::refresh(self),
                 "view.tool" => {
                     self.viewport.nav = match v.get("tool").and_then(Value::as_str) {
                         Some("orbit") => Some(viewport::NavMode::Orbit),
@@ -1307,11 +1306,11 @@ impl SolveApp {
         if dialogs_sheet::start_export(self, id) {
             return;
         }
-        // The picked drawing is placed (position and scale, previewed) before OK adds it.
         if id == "component.finish_edit" {
             edit_in_place::finish(self);
             return;
         }
+        // The picked drawing is placed (position and scale, previewed) before OK adds it.
         if let Some(ext) = id.strip_prefix("sketch.insert_").filter(|e| matches!(*e, "dxf" | "svg")) {
             let command = id.to_string();
             self.pick_open_for(&[ext], move |app, path| {

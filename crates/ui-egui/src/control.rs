@@ -223,6 +223,10 @@ fn execute(app: &mut SolveApp, id: &str, params: Value) -> Result<Value, String>
         return crate::view_pick::pick_command(app, &params);
     }
     let r = app.run(id, params);
+    // Update Links in a part edited in place reads the assembly around it too, as its button does.
+    if r.is_ok() && is_command(Some(id), "component.update_links") && app.edit_in_place.active.is_some() {
+        crate::edit_in_place::refresh(app);
+    }
     if r.is_ok()
         && !matches!(
             id,
@@ -271,10 +275,15 @@ const LOADS_A_FILE: [&str; 3] = ["doc.open", "file.insert_step", "file.insert_me
 /// later steps, would land in the wrong design.
 const SWITCHES_DESIGN: &str = "component.finish_edit";
 
+/// `command` names the command `id`, in any of the spellings the engine takes.
+fn is_command(command: Option<&str>, id: &str) -> bool {
+    command.and_then(solidcraft_engine::find_command).is_some_and(|spec| spec.id == id)
+}
+
 /// Why `engine.batch` refuses these steps before running any: a step loads a file or switches
 /// to another design (send such steps one by one).
 pub(crate) fn batch_refusal(steps: &[Value]) -> Option<String> {
-    if let Some(i) = steps.iter().position(|step| command(step) == Some(SWITCHES_DESIGN)) {
+    if let Some(i) = steps.iter().position(|step| is_command(command(step), SWITCHES_DESIGN)) {
         return Some(format!("engine.batch unavailable: step {i} ({SWITCHES_DESIGN}) switches to another design"));
     }
     let (i, c) = steps.iter().enumerate().find_map(|(i, step)| command(step).filter(|c| LOADS_A_FILE.contains(c)).map(|c| (i, c)))?;
@@ -471,7 +480,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
         }
         "engine.script" => {
             let steps = p.as_array().or_else(|| p.get("commands").and_then(Value::as_array));
-            if steps.is_some_and(|steps| steps.iter().any(|step| command(step) == Some(SWITCHES_DESIGN))) {
+            if steps.is_some_and(|steps| steps.iter().any(|step| is_command(command(step), SWITCHES_DESIGN))) {
                 return err(format!("engine.script unavailable: {SWITCHES_DESIGN} switches to another design (send it on its own)"));
             }
             let mut replaced = false;
