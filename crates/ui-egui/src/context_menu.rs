@@ -1387,7 +1387,7 @@ pub fn run_item(app: &mut SolveApp, item: &Item, at: Pos2) {
         "ui.editInPlace" => {
             if let Some(component) = id_of(&p, "component") {
                 let path = p["path"].as_array().map(|path| path.iter().filter_map(Value::as_u64).collect());
-                crate::edit_in_place::enter(app, component, path);
+                crate::edit_in_place::open(app, component, path);
             }
         }
         "ui.openLinkedDesign" => {

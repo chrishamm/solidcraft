@@ -11,10 +11,11 @@ use solidcraft_geom::Vec3;
 
 use super::CommandSpec;
 use crate::params::{bad, bool_, str_, string_list, vec3};
-use crate::schema::component::{FinishEditParams, FinishEditResult};
+use crate::schema::component::{EditInPlaceParams, EditInPlaceResult, FinishEditParams, FinishEditResult};
 use crate::schema::{TypedContract, output_schema_for};
 use crate::{Result, Session};
 
+const EDIT_IN_PLACE_CONTRACT: TypedContract<EditInPlaceParams> = TypedContract::new();
 const FINISH_EDIT_CONTRACT: TypedContract<FinishEditParams> = TypedContract::new();
 
 #[path = "component_drag.rs"]
@@ -47,6 +48,17 @@ pub static COMMANDS: &[CommandSpec] = &[
         .icon("component")
         .params("bodies: [names] → one new component per body, named after it"),
     CommandSpec::new("component.activate", "Activate Component", activate).icon("activate").noundo().params("component: id or name (0 or \"root\" for the design); occurrence?, path?: exact placement used to author shared geometry"),
+    CommandSpec::new("component.edit_in_place", "Edit in Place", crate::checked!("component.edit_in_place", edit_in_place))
+        .icon("edit")
+        .noundo()
+        .doc_only()
+        .contract(&EDIT_IN_PLACE_CONTRACT)
+        .output(output_schema_for::<EditInPlaceResult>)
+        .params(
+            "component: id or name of a linked component; path?: its placement (occurrence ids, default its first) → in the app \
+             window: open the design it links in a tab of its own with the assembly drawn around it (component.finish_edit goes \
+             back); fails when it is not linked, the assembly has no file yet or something is open in it; elsewhere it only checks",
+        ),
     CommandSpec::new("component.finish_edit", "Finish Edit", crate::checked!("component.finish_edit", finish_edit))
         .icon("finish_edit")
         .noundo()
@@ -55,7 +67,8 @@ pub static COMMANDS: &[CommandSpec] = &[
         .output(output_schema_for::<FinishEditResult>)
         .params(
             "no parameters → in the app window: go back from the linked design edited in place to its assembly, which reads it again; \
-             fails while the design has unsaved changes (run file.save first) or something is open in it; elsewhere nothing changes",
+             fails while the design has unsaved changes (run file.save first) or something is open in it; asked by the part's own \
+             agent, it finishes when that agent's turn ends; elsewhere nothing changes",
         ),
     CommandSpec::new("component.list", "List Components", list).icon("list").noundo().params(
         "compact?: bool (counts of bodies, features, sketches and construction planes instead of their names; occurrences leave out \
@@ -205,6 +218,24 @@ pub(super) fn new_component(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn from_bodies(s: &mut Session, p: &Value) -> Result<Value> {
     transfer::from_bodies(s, p)
+}
+
+/// The app window opens the edit in place from what this returns; here the component and its
+/// placement are only checked.
+fn edit_in_place(s: &mut Session, p: &Value) -> Result<Value> {
+    let cmd = "component.edit_in_place";
+    let id = component(s, p, "component", cmd)?;
+    if !s.doc.links.contains_key(&id) {
+        return Err(bad(cmd, "that component is not linked to a design"));
+    }
+    let path = match p.get("path") {
+        Some(_) => serde_json::from_value::<Vec<u64>>(p["path"].clone()).map_err(|_| bad(cmd, "`path` must be occurrence ids"))?,
+        None => s.doc.first_path(id),
+    };
+    if s.occurrence_placement(&path).map_err(|e| bad(cmd, e.to_string()))?.component != id {
+        return Err(bad(cmd, "`path` is a placement of another component"));
+    }
+    serde_json::to_value(EditInPlaceResult { component: id, path, ..Default::default() }).map_err(|e| crate::EngineError::Other(e.to_string()))
 }
 
 /// The app window finishes an edit in place (it knows the part's tab and its assembly); here

@@ -58,7 +58,11 @@ pub struct EditInPlace {
     pending: Option<PartContext>,
     /// Finish Edit is waiting for the save of the part at this file.
     finish_after_save: Option<String>,
+    /// The part's own agent asked to finish the edit of the part at this file during its turn.
+    finish_after_turn: Option<String>,
     refresh: Option<Refresh>,
+    /// `component.edit_in_place` is run by the window ([`open`]), not as a command: its open may ask.
+    ask: bool,
 }
 
 impl EditInPlace {
@@ -75,7 +79,7 @@ pub(crate) fn double_click_component(app: &mut SolveApp, params: Value) {
     let component = params["component"].as_u64().unwrap_or(0);
     if app.preferences.double_click_components && app.session.doc.links.contains_key(&component) {
         let path = params["path"].as_array().map(|p| p.iter().filter_map(Value::as_u64).collect::<Vec<_>>());
-        enter(app, component, path);
+        open(app, component, path);
     } else {
         let _ = app.run("component.activate", params);
     }
@@ -98,7 +102,7 @@ pub(crate) fn double_click_face(app: &mut SolveApp, body: &str) -> bool {
         .map(|(_, path, _)| path)
         .find(|path| app.session.occurrence_bodies(path, true).is_ok_and(|bodies| bodies.iter().any(|b| b == body)));
     if app.session.doc.links.contains_key(&component) {
-        enter(app, component, placement);
+        open(app, component, placement);
         return true;
     }
     let active = app.session.active_component == component
@@ -115,8 +119,20 @@ fn busy(app: &SolveApp) -> bool {
     app.file_picker_busy() || app.file_load.busy() || app.saving.is_some() || app.edit_in_place.refreshing()
 }
 
-/// A dialog, tool, sketch or feature edit is open in the design shown: leaving its tab would
-/// cancel it.
+/// Why [`busy`]: the assembly's refresh, or a file being read, written or picked.
+fn busy_reason(app: &SolveApp) -> String {
+    match &app.edit_in_place.refresh {
+        Some(r) => crate::i18n::format("ui.edit_in_place_refreshing", &[("name", &file_name(&r.assembly))]),
+        None => crate::i18n::tr("ui.edit_in_place_wait").to_string(),
+    }
+}
+
+fn file_name(path: &str) -> String {
+    std::path::Path::new(path).file_stem().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// A dialog, tool, sketch or feature edit, or the parameters or design properties panel (with
+/// text typed and not applied yet) is open in the design shown: leaving its tab would drop it.
 fn working(app: &SolveApp) -> bool {
     app.dialog.is_some()
         || app.applying.is_some()
@@ -124,6 +140,8 @@ fn working(app: &SolveApp) -> bool {
         || app.pending_feature_edit.is_some()
         || app.tool.is_some()
         || app.session.active_sketch.is_some()
+        || app.params.is_some()
+        || app.design_properties.is_some()
 }
 
 /// The bodies of `session` around its linked component `component`, in that component's frame
@@ -149,34 +167,66 @@ fn snapshot(session: &Session, component: u64, placement: &[u64]) -> Option<(usi
     Some((bodies, triangles, bounds))
 }
 
+/// Edit the linked component `component` in place at its placement `path` (default: its first),
+/// as the window does it (a double-click, Edit in Place in its menu): `component.edit_in_place`,
+/// with the questions an open can ask (a network location, a design open elsewhere) asked.
+pub(crate) fn open(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) {
+    let mut params = json!({ "component": component });
+    if let Some(path) = path {
+        params["path"] = json!(path);
+    }
+    app.edit_in_place.ask = true;
+    let _ = app.run("component.edit_in_place", params);
+    app.edit_in_place.ask = false;
+}
+
+/// `component.edit_in_place` ran: `result` names the component and its placement, and the window
+/// opens the edit. Run as a command, it asks nothing: what would need a question fails instead.
+pub(crate) fn command_ran(app: &mut SolveApp, result: &Value) -> Result<(), String> {
+    let component = result["component"].as_u64().unwrap_or(0);
+    let path = result["path"].as_array().map(|p| p.iter().filter_map(Value::as_u64).collect::<Vec<_>>());
+    let ask = app.edit_in_place.ask;
+    enter(app, component, path, ask)
+}
+
 /// Open the design the linked component `component` comes from, with the assembly around it as
-/// its placement `path` (default: its first) puts it.
-pub(crate) fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) {
+/// its placement `path` (default: its first) puts it (`ask`: with the open's questions).
+fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>, ask: bool) -> Result<(), String> {
     if busy(app) {
-        return;
+        return Err(busy_reason(app));
     }
     if working(app) {
-        app.set_status(crate::i18n::tr("ui.edit_in_place_busy").to_string(), true);
-        return;
+        return Err(crate::i18n::tr("ui.edit_in_place_busy").to_string());
     }
     let Some(assembly) = app.session.path.clone() else {
-        app.set_status(crate::i18n::tr("ui.edit_in_place_save_first").to_string(), true);
-        return;
+        return Err(crate::i18n::tr("ui.edit_in_place_save_first").to_string());
     };
-    let links = match app.session.execute("component.links", &json!({})) {
-        Ok(links) => links,
-        Err(e) => {
-            app.set_status(e.to_string(), true);
-            return;
-        }
-    };
+    let links = app.session.execute("component.links", &json!({})).map_err(|e| e.to_string())?;
     let Some(link) = links["links"].as_array().into_iter().flatten().find(|l| l["component"].as_u64() == Some(component)).cloned() else {
-        app.set_status(app.tr_label("ui.relink_not_linked").to_string(), true);
-        return;
+        return Err(app.tr_label("ui.relink_not_linked").to_string());
     };
-    let Some(part) = link["file"].as_str().map(str::to_string) else { return };
+    let Some(part) = link["file"].as_str().map(str::to_string) else {
+        return Err(app.tr_label("ui.relink_not_linked").to_string());
+    };
+    if !ask {
+        // A network location not allowed yet, a missing file or one open in another SolidCraft
+        // would ask or stop the open: as a command, that is its answer.
+        if link["found"] != true {
+            return Err(format!("{part}: {}", link["reason"].as_str().or(link["host"].as_str()).unwrap_or("not found")));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if app.locks.is_some()
+            && crate::documents::session_at(app, &part).is_none()
+            && solidcraft_engine::io::design_lock::held_elsewhere(std::path::Path::new(&part), solidcraft_engine::io::design_lock::now_secs())
+                .is_some()
+        {
+            return Err(crate::i18n::format("ui.edit_in_place_open_elsewhere", &[("name", &file_name(&part))]));
+        }
+    }
     let placement = path.unwrap_or_else(|| app.session.doc.first_path(component));
-    let Some((bodies, triangles, bounds)) = snapshot(&app.session, component, &placement) else { return };
+    let Some((bodies, triangles, bounds)) = snapshot(&app.session, component, &placement) else {
+        return Err(app.tr_label("ui.relink_not_linked").to_string());
+    };
     let opened = crate::documents::session_at(app, &part).is_none();
     app.edit_in_place.pending = Some(PartContext {
         assembly,
@@ -190,6 +240,7 @@ pub(crate) fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) 
         opened,
     });
     crate::network_prompt::open_linked(app, &link);
+    Ok(())
 }
 
 /// The design shown has become the part an edit waits for: the edit starts there. An edit whose
@@ -218,7 +269,12 @@ pub(crate) fn refreshing_assembly(app: &SolveApp) -> Option<String> {
 /// Update Links pressed while a part is edited in place: the assembly's tab reads its links again
 /// (off the window thread), and the picture around the part follows.
 pub(crate) fn refresh(app: &mut SolveApp) {
+    // A refresh already running is the one asked for.
+    if app.edit_in_place.refreshing() {
+        return;
+    }
     if busy(app) {
+        app.set_status(busy_reason(app), true);
         return;
     }
     let Some(assembly) = app.edit_in_place.active.as_ref().map(|c| c.assembly.clone()) else { return };
@@ -253,6 +309,12 @@ pub(crate) fn refresh(app: &mut SolveApp) {
 /// run started from, and the picture around the part is taken again.
 fn take_refresh(app: &mut SolveApp) {
     let Some(r) = &app.edit_in_place.refresh else { return };
+    // An undo, a command or a feature still being computed in the assembly goes first: taken up
+    // under it, the refresh would be what it undoes or what it is refused for.
+    let shown = app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &r.assembly));
+    if shown && (app.deferred.is_some() || !app.deferred_queue.is_empty() || app.applying.is_some()) {
+        return;
+    }
     let result = match r.done.try_recv() {
         Ok(result) => result,
         Err(std::sync::mpsc::TryRecvError::Empty) => return,
@@ -316,17 +378,15 @@ fn finish_with(app: &mut SolveApp, save: bool) -> Result<(), String> {
     let Some(part) = app.edit_in_place.active.as_ref().map(|c| c.part.clone()) else {
         return Err(crate::i18n::tr("ui.edit_in_place_none").to_string());
     };
-    // Leaving the tab would stop the part's agent in the middle of its turn.
-    if app.agent_chat.state() == crate::agent_chat::State::Busy {
-        return Err(crate::i18n::tr("ui.edit_in_place_agent_busy").to_string());
+    if busy(app) {
+        return Err(busy_reason(app));
     }
     if !can_finish(app) {
         return Err(crate::i18n::tr("ui.edit_in_place_busy").to_string());
     }
     // Saved to another file (Save As, a copy of a read-only design): the assembly still links this one.
     if !app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &part)) {
-        let name = std::path::Path::new(&part).file_stem().map_or_else(|| part.clone(), |n| n.to_string_lossy().into_owned());
-        return Err(crate::i18n::format("ui.edit_in_place_saved_elsewhere", &[("name", &name)]));
+        return Err(crate::i18n::format("ui.edit_in_place_saved_elsewhere", &[("name", &file_name(&part))]));
     }
     if app.session.is_dirty() {
         if !save {
@@ -334,6 +394,16 @@ fn finish_with(app: &mut SolveApp, save: bool) -> Result<(), String> {
         }
         app.edit_in_place.finish_after_save = Some(part);
         crate::toolbar::save(app);
+        return Ok(());
+    }
+    // Leaving the tab would stop the part's agent in the middle of its turn. Asked by that agent
+    // (a command, which it can only send during its turn), the edit finishes once the turn ends.
+    if app.agent_chat.state() == crate::agent_chat::State::Busy {
+        if save {
+            return Err(crate::i18n::tr("ui.edit_in_place_agent_busy").to_string());
+        }
+        app.edit_in_place.finish_after_turn = Some(part);
+        app.set_status(crate::i18n::tr("ui.edit_in_place_after_turn").to_string(), false);
         return Ok(());
     }
     let Some(context) = app.edit_in_place.active.take() else { return Ok(()) };
@@ -360,8 +430,7 @@ fn finish_with(app: &mut SolveApp, save: bool) -> Result<(), String> {
 /// Nothing is under way in the part that leaving its tab would cut short or that waits for an
 /// answer: a dialog or tool, a feature being computed or edited, a sketch, a prompt or Home.
 fn can_finish(app: &SolveApp) -> bool {
-    !busy(app)
-        && !working(app)
+    !working(app)
         && app.deferred.is_none()
         && app.docs.closing.is_none()
         && app.docs.quitting.is_none()
@@ -389,6 +458,15 @@ pub(crate) fn tick(app: &mut SolveApp) {
         } else if shown {
             app.set_status(crate::i18n::tr("ui.edit_in_place_not_saved").to_string(), true);
         }
+    }
+    // The agent's turn ended: the finish it asked for goes on, as the command would have, in the
+    // part's own tab (shown elsewhere, or edited differently since, it is dropped).
+    if app.agent_chat.state() != crate::agent_chat::State::Busy
+        && let Some(part) = app.edit_in_place.finish_after_turn.take()
+        && app.edit_in_place.active.as_ref().is_some_and(|c| crate::documents::same_path(&c.part, &part))
+        && let Err(why) = finish_with(app, false)
+    {
+        app.set_status(why, true);
     }
 }
 
@@ -424,7 +502,8 @@ pub(crate) fn draw_context(app: &SolveApp, sc: &mut GpuScene) {
 pub(crate) fn browser_strip(app: &SolveApp, ui: &mut egui::Ui) {
     let Some(context) = &app.edit_in_place.active else { return };
     let t = Tokens::get();
-    let key = if app.edit_in_place.refreshing() { "ui.edit_in_place_refreshing" } else { "ui.edit_in_place_banner" };
+    let refreshing = app.edit_in_place.refresh.as_ref().is_some_and(|r| crate::documents::same_path(&r.assembly, &context.assembly));
+    let key = if refreshing { "ui.edit_in_place_refreshing" } else { "ui.edit_in_place_banner" };
     let text = crate::i18n::format(key, &[("name", &context.assembly_name)]);
     ui.horizontal(|ui| {
         ui.add_space(t.space_6);

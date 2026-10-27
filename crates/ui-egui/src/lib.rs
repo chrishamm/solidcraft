@@ -990,9 +990,12 @@ impl SolveApp {
 
     /// Host effects shared by directly executed and already evaluated commands.
     pub(crate) fn command_completed(&mut self, id: &str, r: Result<Value, String>) -> Result<Value, String> {
-        // The engine has no edit in place to finish; the window does, and says when it can't.
-        let finish_edit = solidcraft_engine::find_command(id).is_some_and(|spec| spec.id == "component.finish_edit");
-        let r = if finish_edit { r.and_then(|v| edit_in_place::finish_command(self).map(|()| v)) } else { r };
+        // The engine has no edit in place to start or finish; the window does, and says when it can't.
+        let r = match solidcraft_engine::find_command(id).map(|spec| spec.id) {
+            Some("component.edit_in_place") => r.and_then(|v| edit_in_place::command_ran(self, &v).map(|()| v)),
+            Some("component.finish_edit") => r.and_then(|v| edit_in_place::finish_command(self).map(|()| v)),
+            _ => r,
+        };
         if let Ok(v) = &r {
             match id {
                 "view.fit" | "view.home" => self.frame_view(id == "view.home"),

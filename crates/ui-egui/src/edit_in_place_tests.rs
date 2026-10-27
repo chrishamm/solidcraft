@@ -417,7 +417,7 @@ fn the_back_button_finishes_the_edit_unless_a_dialog_is_open() {
 }
 
 #[test]
-fn the_assembly_is_not_saved_while_it_reads_its_links_for_the_part() {
+fn saving_the_assembly_from_the_window_waits_while_it_reads_its_links_for_the_part() {
     let mut f = assembly("save-waits");
     f.app.preferences.update_changed_links = false;
     double_click_component(&mut f.app, json!({"component": f.plate}));
@@ -582,16 +582,74 @@ fn finish_editing_waits_for_the_parts_agent_to_end_its_turn() {
     double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     f.app.agent_chat.set_state(crate::agent_chat::State::Busy);
-    let e = f.app.run("component.finish_edit", json!({})).unwrap_err();
-    assert!(e.contains("agent"), "{e}");
+    // The button would stop the agent mid-turn: refused
     finish(&mut f.app);
     assert!(showing(&f.app, &f.plate_file) && f.app.edit_in_place.active.is_some());
     assert!(f.app.status.as_ref().is_some_and(|(s, _, error)| *error && s.contains("agent")), "{:?}", f.app.status);
-    // An idle chat goes with the tab, as closing it would take it
-    f.app.agent_chat.set_state(crate::agent_chat::State::Ready);
-    finish(&mut f.app);
+    // The agent itself asks: the edit finishes once its turn is over
+    f.app.run("component.finish_edit", json!({})).unwrap();
     settle(&mut f.app);
-    assert_eq!(f.app.docs.count(), 1);
+    assert!(showing(&f.app, &f.plate_file) && f.app.edit_in_place.active.is_some(), "not during the turn");
+    f.app.agent_chat.set_state(crate::agent_chat::State::Ready);
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_none());
+    assert_eq!(f.app.docs.count(), 1, "an idle chat goes with the tab, as closing it would take it");
+}
+
+#[test]
+fn edit_in_place_is_a_command_the_double_click_runs() {
+    let mut f = assembly("command-enter");
+    let mut h = crate::scenario::Harness::new();
+    h.app = std::mem::replace(&mut f.app, SolveApp::new(Session::default(), Default::default()));
+    // Not linked, or not a placement of it: refused, nothing opens
+    let base = h.app.run("component.create", json!({"name": "Bracket"})).unwrap()["component"].as_u64().unwrap();
+    h.app.run("component.activate", json!({"component": "root"})).unwrap();
+    assert!(h.app.run("component.edit_in_place", json!({"component": base})).is_err());
+    assert!(h.app.run("component.edit_in_place", json!({"component": f.plate, "path": [999]})).is_err());
+    // In a batch or script it would switch designs under the other steps
+    let reply = h.call("engine.batch", json!({"commands": [{"command": "component.edit_in_place", "params": {"component": f.plate}}]}));
+    assert!(reply.to_string().contains("switches to another design"), "{reply}");
+    assert_eq!(h.app.docs.count(), 1);
+    let reply = h.call("engine.execute", json!({"command": "component.edit_in_place", "params": {"component": f.plate}}));
+    settle(&mut h.app);
+    assert_eq!(reply["result"]["component"], json!(f.plate), "{reply}");
+    assert!(showing(&h.app, &f.plate_file), "{reply}");
+    assert!((context(&h.app).bounds.min.x - -150.0).abs() < 1e-6, "the assembly around it, as the double-click draws it");
+}
+
+#[test]
+fn an_open_panel_with_typed_text_holds_the_edit_up() {
+    let mut f = assembly("panels");
+    crate::params_dialog::open(&mut f.app);
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1, "the assembly's parameters panel stays");
+    f.app.params = None;
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    crate::design_properties::open(&mut f.app);
+    assert!(f.app.run("component.finish_edit", json!({})).is_err());
+    assert!(f.app.design_properties.is_some() && showing(&f.app, &f.plate_file));
+}
+
+#[test]
+fn a_refresh_waits_for_a_command_still_queued_in_the_assembly() {
+    let mut f = assembly("queued");
+    f.app.preferences.update_changed_links = false;
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    crate::documents::switch(&mut f.app, 0);
+    f.app.deferred_queue.push(("view.fit".into(), json!({})));
+    for _ in 0..200 {
+        tick(&mut f.app);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(f.app.edit_in_place.refreshing(), "not taken up under the queued command");
+    f.app.deferred_queue.clear();
+    settle(&mut f.app);
+    assert!((volume(&f.app) - 7250.0).abs() < 1e-6, "{}", volume(&f.app));
 }
 
 #[test]
