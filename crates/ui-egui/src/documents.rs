@@ -30,6 +30,8 @@ pub struct DocSlot {
     view: DocView,
     occurrence_move: Option<crate::browser::OccMove>,
     agent_chat: crate::agent_chat::AgentChat,
+    /// Its linked design files as they were on disk when the design went to the background.
+    link_stamps: Vec<(u64, crate::linked_source::Stamp)>,
 }
 
 /// The per-design part of the UI state the session doesn't keep (what is hidden, shown or locked
@@ -58,6 +60,7 @@ impl DocSlot {
             view: DocView::default(),
             occurrence_move: None,
             agent_chat: Default::default(),
+            link_stamps: Vec::new(),
         }
     }
 }
@@ -151,6 +154,7 @@ fn swap_in(app: &mut SolveApp, mut slot: DocSlot) -> DocSlot {
         view: take_view(app),
         occurrence_move: std::mem::replace(&mut app.tree.occurrence_move, slot.occurrence_move),
         agent_chat: slot.agent_chat,
+        link_stamps: Vec::new(),
     };
     // Only the displayed design owns the process-wide crash replay journal.
     app.session.crash_journal = out.session.crash_journal;
@@ -205,13 +209,17 @@ pub fn switch(app: &mut SolveApp, i: usize) {
     if i == app.docs.active || i >= app.docs.slots.len() {
         return;
     }
-    let Some(incoming) = app.docs.slots.get_mut(i).and_then(Option::take) else { return };
-    let out = swap_in(app, incoming);
+    let Some(mut incoming) = app.docs.slots.get_mut(i).and_then(Option::take) else { return };
+    let stamps = std::mem::take(&mut incoming.link_stamps);
+    let leaving = crate::linked_source::link_stamps(app);
+    let mut out = swap_in(app, incoming);
+    out.link_stamps = leaving;
     let a = app.docs.active;
     if let Some(s) = app.docs.slots.get_mut(a) {
         *s = Some(out);
     }
     app.docs.active = i;
+    crate::linked_source::update_changed(app, &stamps);
 }
 
 /// Select an already-open saved design without reloading or framing it. Identity is derived

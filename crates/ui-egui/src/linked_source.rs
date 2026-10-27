@@ -105,6 +105,60 @@ fn report(app: &mut SolveApp, result: &serde_json::Value, done: &str) {
     }
 }
 
+/// A linked design file as it is on disk: its modification time and size (`None`: not there,
+/// not allowed, or the platform keeps no times).
+pub(crate) type Stamp = Option<(std::time::SystemTime, u64)>;
+
+fn stamp(file: &str) -> Stamp {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let meta = std::fs::metadata(file).ok()?;
+        Some((meta.modified().ok()?, meta.len()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = file;
+        None
+    }
+}
+
+/// The active design's linked components with their files as they are on disk now. A file on a
+/// network location not allowed is never looked at (`component.links` reports it unfound).
+pub(crate) fn link_stamps(app: &mut SolveApp) -> Vec<(u64, Stamp)> {
+    if !app.preferences.update_changed_links || app.session.doc.links.is_empty() {
+        return Vec::new();
+    }
+    let Ok(links) = app.session.execute("component.links", &json!({})) else { return Vec::new() };
+    let found = |l: &&serde_json::Value| l["found"].as_bool() == Some(true);
+    links["links"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(found)
+        .filter_map(|l| Some((l["component"].as_u64()?, stamp(l["file"].as_str()?))))
+        .collect()
+}
+
+/// Take up, off the window thread as Update Links does, the linked designs whose files changed
+/// since `before` ([`link_stamps`] as the design went to the background).
+pub(crate) fn update_changed(app: &mut SolveApp, before: &[(u64, Stamp)]) {
+    if before.is_empty() {
+        return;
+    }
+    let changed: Vec<u64> =
+        link_stamps(app).into_iter().filter(|(c, now)| now.is_some() && before.iter().any(|(b, was)| b == c && was != now)).map(|(c, _)| c).collect();
+    let mut request = crate::file_load::Request::new("", crate::file_load::Kind::UpdateLinks);
+    match changed[..] {
+        [] => return,
+        // Several: one run over every link reads each design once.
+        [component] => {
+            request.options.insert("component".into(), json!(component));
+        }
+        _ => {}
+    }
+    let _ = crate::file_load::begin_request(app, request);
+}
+
 /// Components Extract to File found to build the same bodies as the one it linked.
 #[derive(Clone, Debug)]
 pub struct Copies {
@@ -314,6 +368,70 @@ mod tests {
         assert!(link_copies(&mut app, true));
         assert!(app.session.doc.components.iter().all(|c| c.id != copy));
         assert_eq!(app.session.doc.occurrences.iter().find(|o| o.id == copy_occurrence).map(|o| o.component), Some(component));
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn changed_linked_designs_update_the_assembly_when_its_tab_returns() {
+        let folder = std::env::temp_dir().join(format!("solidcraft-changed-link-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("plate.solidcraft");
+        let mut part = Session::default();
+        part.execute("solid.box", &json!({"length": 10, "width": 20, "height": 30})).unwrap();
+        part.execute("file.save", &json!({"path": file})).unwrap();
+        let mut app = SolveApp::new(Session::default(), Default::default());
+        app.run("component.insert_design", json!({"path": file})).unwrap();
+        let volume = |app: &SolveApp| {
+            app.session.world_state().bodies.iter().map(|b| solidcraft_engine::kernel::measure(&b.body).unwrap().volume).sum::<f64>()
+        };
+        let ctx = egui::Context::default();
+        let settle = |app: &mut SolveApp| {
+            let began = std::time::Instant::now();
+            while !app.file_load.idle() {
+                assert!(began.elapsed() < std::time::Duration::from_secs(120), "Update Links went on");
+                crate::file_load::tick(app, &ctx);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        };
+        let saved_box = |app: &mut SolveApp| {
+            crate::documents::switch(app, 1);
+            app.run("solid.box", json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
+            app.run("file.save", json!({})).unwrap();
+            crate::documents::switch(app, 0);
+        };
+        assert!((volume(&app) - 6000.0).abs() < 1e-6);
+        let mut opened = Session::default();
+        opened.execute("doc.open", &json!({"path": file})).unwrap();
+        crate::documents::open_tab(&mut app, opened).unwrap();
+        assert_eq!(app.docs.active, 1);
+        // Back without saving: nothing to take up
+        crate::documents::switch(&mut app, 0);
+        assert!(app.file_load.idle());
+        assert!((volume(&app) - 6000.0).abs() < 1e-6);
+        // Changed and saved there: coming back updates the link, off the window thread
+        saved_box(&mut app);
+        assert!(app.file_load.busy(), "the update runs as Update Links does");
+        settle(&mut app);
+        assert!((volume(&app) - 7000.0).abs() < 1e-6, "{}", volume(&app));
+        assert_eq!(app.status.as_ref().map(|s| s.0.as_str()), Some("Update Links done"));
+        // Changed outside the app (another window, a checkout) while the tab was away: the same.
+        // The part's own tab now refuses to save over that change, so it stays out of the rest
+        let saved_elsewhere = |app: &mut SolveApp| {
+            crate::documents::switch(app, 1);
+            let mut elsewhere = Session::default();
+            elsewhere.execute("doc.open", &json!({"path": file})).unwrap();
+            elsewhere.execute("solid.box", &json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
+            elsewhere.execute("file.save", &json!({})).unwrap();
+            crate::documents::switch(app, 0);
+        };
+        saved_elsewhere(&mut app);
+        settle(&mut app);
+        assert!((volume(&app) - 8000.0).abs() < 1e-6, "{}", volume(&app));
+        // Turned off, the link waits for Update Links as before
+        app.preferences.update_changed_links = false;
+        saved_elsewhere(&mut app);
+        assert!(app.file_load.idle());
+        assert!((volume(&app) - 8000.0).abs() < 1e-6, "{}", volume(&app));
         let _ = std::fs::remove_dir_all(folder);
     }
 
