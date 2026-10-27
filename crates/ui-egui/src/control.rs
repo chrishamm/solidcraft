@@ -267,9 +267,16 @@ const MAX_BATCH: usize = 10_000;
 /// bypass.
 const LOADS_A_FILE: [&str; 3] = ["doc.open", "file.insert_step", "file.insert_mesh"];
 
-/// Why `engine.batch` refuses these steps before running any: a step loads a file (send such
-/// steps one by one).
+/// Finish Editing leaves the part for the assembly's tab: a batch's rollback, or a script's
+/// later steps, would land in the wrong design.
+const SWITCHES_DESIGN: &str = "component.finish_edit";
+
+/// Why `engine.batch` refuses these steps before running any: a step loads a file or switches
+/// to another design (send such steps one by one).
 pub(crate) fn batch_refusal(steps: &[Value]) -> Option<String> {
+    if let Some(i) = steps.iter().position(|step| command(step) == Some(SWITCHES_DESIGN)) {
+        return Some(format!("engine.batch unavailable: step {i} ({SWITCHES_DESIGN}) switches to another design"));
+    }
     let (i, c) = steps.iter().enumerate().find_map(|(i, step)| command(step).filter(|c| LOADS_A_FILE.contains(c)).map(|c| (i, c)))?;
     Some(format!("engine.batch unavailable: step {i} ({c}) loads a file"))
 }
@@ -464,6 +471,9 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
         }
         "engine.script" => {
             let steps = p.as_array().or_else(|| p.get("commands").and_then(Value::as_array));
+            if steps.is_some_and(|steps| steps.iter().any(|step| command(step) == Some(SWITCHES_DESIGN))) {
+                return err(format!("engine.script unavailable: {SWITCHES_DESIGN} switches to another design (send it on its own)"));
+            }
             let mut replaced = false;
             let r = app
                 .session
@@ -476,6 +486,7 @@ fn dispatch(app: &mut SolveApp, ctx: &egui::Context, method: &str, p: &Value) ->
             // A successful replacement still happened if a later script step failed.
             if replaced {
                 crate::documents::reset_chat(app);
+                app.edit_in_place.active = None;
             }
             app.follow_view_request(false);
             wrap(r)

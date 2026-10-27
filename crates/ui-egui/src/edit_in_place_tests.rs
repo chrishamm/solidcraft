@@ -149,17 +149,21 @@ fn update_links_in_the_part_refreshes_the_assembly_around_it() {
 
 #[test]
 fn looking_at_the_assembly_while_it_refreshes_keeps_the_refresh() {
-    let mut f = assembly("looked");
-    f.app.preferences.update_changed_links = false;
-    double_click_component(&mut f.app, json!({"component": f.plate}));
-    settle(&mut f.app);
-    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
-    refresh(&mut f.app);
-    crate::documents::switch(&mut f.app, 0);
-    crate::documents::switch(&mut f.app, 1);
-    settle(&mut f.app);
-    let assembly = crate::documents::session_at(&f.app, &context(&f.app).assembly).unwrap();
-    assert!((volume_of(assembly, "") - 7250.0).abs() < 1e-6, "showing the assembly changes nothing in it: {}", volume_of(assembly, ""));
+    for update_changed_links in [false, true] {
+        let mut f = assembly(&format!("looked-{update_changed_links}"));
+        f.app.preferences.update_changed_links = update_changed_links;
+        double_click_component(&mut f.app, json!({"component": f.plate}));
+        settle(&mut f.app);
+        save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+        refresh(&mut f.app);
+        crate::documents::switch(&mut f.app, 0);
+        assert!(f.app.file_load.idle(), "no second read of the same links");
+        crate::documents::switch(&mut f.app, 1);
+        settle(&mut f.app);
+        assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| !error), "{:?}", f.app.status);
+        let assembly = crate::documents::session_at(&f.app, &context(&f.app).assembly).unwrap();
+        assert!((volume_of(assembly, "") - 7250.0).abs() < 1e-6, "showing the assembly changes nothing in it: {}", volume_of(assembly, ""));
+    }
 }
 
 #[test]
@@ -417,8 +421,8 @@ fn finish_editing_waits_for_what_is_open_in_the_part() {
     settle(&mut f.app);
     f.app.start("solid.box");
     assert!(f.app.dialog.is_some());
-    // As an agent calls it: the command, not the button
-    f.app.run("component.finish_edit", json!({})).unwrap();
+    // As an agent calls it: the command, not the button, and the refusal is its answer
+    assert!(f.app.run("component.finish_edit", json!({})).is_err());
     settle(&mut f.app);
     assert!(f.app.edit_in_place.active.is_some() && f.app.dialog.is_some());
     assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", f.app.status);
@@ -427,6 +431,115 @@ fn finish_editing_waits_for_what_is_open_in_the_part() {
     settle(&mut f.app);
     assert!(f.app.edit_in_place.active.is_none());
     assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.run("component.finish_edit", json!({})).is_err(), "nothing is edited in place any more");
+}
+
+#[test]
+fn finish_editing_as_a_command_opens_nothing_for_a_part_with_changes() {
+    let mut f = assembly("command-dirty");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.run("solid.box", json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
+    let e = f.app.run("component.finish_edit", json!({})).unwrap_err();
+    assert!(e.contains("not saved"), "{e}");
+    assert!(f.app.saving.is_none() && f.app.file_picker.is_none() && f.app.dialog.is_none() && f.app.edit_in_place.finish_after_save.is_none());
+    assert!(showing(&f.app, &f.plate_file) && f.app.edit_in_place.active.is_some());
+    f.app.run("file.save", json!({})).unwrap();
+    f.app.run("component.finish_edit", json!({})).unwrap();
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!((volume(&f.app) - 8000.0).abs() < 1e-6, "{}", volume(&f.app));
+}
+
+#[test]
+fn finish_editing_is_sent_on_its_own_not_in_a_batch_or_script() {
+    let mut f = assembly("control");
+    let mut h = crate::scenario::Harness::new();
+    h.app = std::mem::replace(&mut f.app, SolveApp::new(Session::default(), Default::default()));
+    double_click_component(&mut h.app, json!({"component": f.plate}));
+    settle(&mut h.app);
+    let steps = json!([{"command": "solid.box", "params": {"length": 1, "width": 1, "height": 1}}, {"command": "component.finish_edit"}]);
+    for (method, params) in [("engine.batch", json!({"commands": steps})), ("engine.script", json!({"commands": steps}))] {
+        let reply = h.call(method, params);
+        assert!(reply.to_string().contains("switches to another design"), "{method}: {reply}");
+        assert!(showing(&h.app, &f.plate_file) && h.app.edit_in_place.active.is_some(), "{method}");
+    }
+    assert_eq!(volume(&h.app), 6000.0, "no step ran");
+    let reply = h.call("engine.execute", json!({"command": "component.finish_edit"}));
+    settle(&mut h.app);
+    assert!(h.app.edit_in_place.active.is_none(), "{reply}");
+    assert_eq!(h.app.docs.count(), 1);
+}
+
+#[test]
+fn the_mouse_back_button_finishes_the_edit() {
+    let mut f = assembly("mouse-back");
+    let mut h = crate::scenario::Harness::new();
+    h.app = std::mem::replace(&mut f.app, SolveApp::new(Session::default(), Default::default()));
+    h.app.home.open = false;
+    double_click_component(&mut h.app, json!({"component": f.plate}));
+    settle(&mut h.app);
+    h.frames(2);
+    let pos = egui::pos2(400.0, 300.0);
+    let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Extra1, pressed, modifiers: Default::default() };
+    h.frame_with(vec![egui::Event::PointerMoved(pos), button(true)]);
+    h.frame_with(vec![button(false)]);
+    settle(&mut h.app);
+    assert!(h.app.edit_in_place.active.is_none());
+    assert!(!showing(&h.app, &f.plate_file));
+    assert_eq!(h.app.docs.count(), 1);
+}
+
+#[test]
+fn a_dialog_open_in_the_assembly_keeps_a_double_click_from_leaving_it() {
+    use crate::context_menu::{self, Target};
+    let mut f = assembly("assembly-dialog");
+    f.app.start("solid.box");
+    assert!(f.app.dialog.is_some());
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert!(f.app.dialog.is_some(), "the dialog stays");
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.edit_in_place.active.is_none() && f.app.edit_in_place.pending.is_none());
+    let edit = context_menu::items(&f.app, &Target::Component { id: f.plate }).into_iter().find(|i| i.id == "ui.editInPlace").unwrap();
+    context_menu::run_item(&mut f.app, &edit, egui::Pos2::ZERO);
+    settle(&mut f.app);
+    assert!(f.app.dialog.is_some() && f.app.docs.count() == 1);
+    assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", f.app.status);
+}
+
+#[test]
+fn a_new_design_in_the_parts_tab_ends_the_edit() {
+    let mut f = assembly("replaced");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.run("file.new", json!({})).unwrap();
+    assert!(f.app.edit_in_place.active.is_none());
+    assert!(bounds(&f.app).is_none(), "no assembly drawn around the new design");
+}
+
+#[test]
+fn what_is_done_in_the_assembly_while_it_refreshes_stays() {
+    let mut f = assembly("meanwhile");
+    f.app.preferences.update_changed_links = false;
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    crate::documents::switch(&mut f.app, 0);
+    // Picked, activated and dragged without capturing: none of it changes the document
+    let post = f.app.session.doc.occurrences.iter().find(|o| o.component != f.plate).map(|o| o.id).unwrap();
+    f.app.run("select.set", json!({"items": [{"type": "occurrence", "path": [post]}]})).unwrap();
+    f.app.run("component.activate", json!({"component": f.plate})).unwrap();
+    f.app.run("occurrence.move", json!({"occurrence": post, "translate": [0, 0, 5], "capture": false})).unwrap();
+    let (picked, moves, revision) = (f.app.session.selection.clone(), f.app.session.pending_moves.clone(), f.app.session.revision);
+    assert!(!moves.is_empty());
+    settle(&mut f.app);
+    assert!((volume(&f.app) - 7250.0).abs() < 1e-6, "the refresh landed: {}", volume(&f.app));
+    assert_eq!(f.app.session.selection, picked);
+    assert_eq!(f.app.session.active_component, f.plate);
+    assert_eq!(f.app.session.pending_moves, moves, "the drag stays where it was let go");
+    assert!(f.app.session.revision > revision, "the revision only moves on");
 }
 
 #[test]

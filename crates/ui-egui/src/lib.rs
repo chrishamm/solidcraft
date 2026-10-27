@@ -990,11 +990,11 @@ impl SolveApp {
 
     /// Host effects shared by directly executed and already evaluated commands.
     pub(crate) fn command_completed(&mut self, id: &str, r: Result<Value, String>) -> Result<Value, String> {
+        // The engine has no edit in place to finish; the window does, and says when it can't.
+        let r = if id == "component.finish_edit" { r.and_then(|v| edit_in_place::finish_command(self).map(|()| v)) } else { r };
         if let Ok(v) = &r {
             match id {
                 "view.fit" | "view.home" => self.frame_view(id == "view.home"),
-                // The engine has no edit in place to finish; the window does, for every caller.
-                "component.finish_edit" => edit_in_place::finish(self),
                 "view.tool" => {
                     self.viewport.nav = match v.get("tool").and_then(Value::as_str) {
                         Some("orbit") => Some(viewport::NavMode::Orbit),
@@ -1119,6 +1119,7 @@ impl SolveApp {
                 }
                 if matches!(id, "file.new" | "doc.open" | "doc.recover") {
                     documents::reset_chat(self);
+                    self.edit_in_place.active = None;
                     render_workspace::reset_document(self);
                     dim_view::cancel();
                     self.menu.props = None;
@@ -1305,6 +1306,10 @@ impl SolveApp {
             return;
         }
         // The picked drawing is placed (position and scale, previewed) before OK adds it.
+        if id == "component.finish_edit" {
+            edit_in_place::finish(self);
+            return;
+        }
         if let Some(ext) = id.strip_prefix("sketch.insert_").filter(|e| matches!(*e, "dxf" | "svg")) {
             let command = id.to_string();
             self.pick_open_for(&[ext], move |app, path| {

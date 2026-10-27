@@ -227,7 +227,12 @@ pub fn switch(app: &mut SolveApp, i: usize) {
     app.docs.active = i;
     // Closing several tabs, quitting, or a "save changes?" for this tab goes through them, and a
     // save then must not wait for a read: what they missed waits for their return.
-    if app.docs.batch.is_none() && app.docs.quitting.is_none() && app.docs.closing.is_none() {
+    // An assembly reading its links for a part edited in place takes them all up once it is done.
+    if app.docs.batch.is_none()
+        && app.docs.quitting.is_none()
+        && app.docs.closing.is_none()
+        && crate::edit_in_place::refreshing_assembly(app).is_none()
+    {
         crate::linked_source::update_changed(app);
     }
     crate::edit_in_place::attach(app);
@@ -240,6 +245,17 @@ pub(crate) fn session_at<'a>(app: &'a SolveApp, path: &str) -> Option<&'a Sessio
         return Some(&app.session);
     }
     app.docs.slots.iter().flatten().map(|s| &s.session).find(|s| saved_at(s))
+}
+
+/// The design in tab `i` has an agent chat running (closing the tab would end it).
+pub(crate) fn chat_running_at(app: &SolveApp, i: usize) -> bool {
+    let chat = if i == app.docs.active {
+        &app.agent_chat
+    } else {
+        let Some(slot) = app.docs.slots.get(i).and_then(Option::as_ref) else { return false };
+        &slot.agent_chat
+    };
+    !matches!(chat.state(), crate::agent_chat::State::Off | crate::agent_chat::State::Exited)
 }
 
 /// The open design saved at `path` read every link again without an error: its record of them
