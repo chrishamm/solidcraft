@@ -352,6 +352,11 @@ Mesh** would. The part's solid bodies come
 in as they sit in that design, and they are kept in the assembly, so it opens even without the
 part file. The link is stored relative to the assembly's folder once the assembly is saved.
 After the part file changes, **Update Links** (`component.update_links`) reads it again.
+An assembly whose tab comes back to the front does that by itself for the parts whose files
+changed while another tab was open, whether the part was saved in another tab, another window or
+by a checkout. **Update linked designs that changed while another tab was open**
+(Preferences, Design, `update_changed_links`) turns this off. A tab opened since starts watching
+once it has been in the background.
 To edit the source, right-click a linked component or occurrence in the Browser and choose
 **Open Linked Design**. It opens the part in another tab and reports if its file is missing.
 **Break Link** (`component.break_link`) keeps the bodies and forgets the file, and
