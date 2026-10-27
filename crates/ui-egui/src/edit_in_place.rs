@@ -209,9 +209,12 @@ pub(crate) fn command_ran(app: &mut SolveApp, result: &Value) -> Result<bool, St
         if ask {
             return Err(crate::i18n::tr("ui.edit_in_place_agent_busy").to_string());
         }
-        check_enter(app)?;
-        let assembly = app.session.path.clone().unwrap_or_default();
-        app.edit_in_place.enter_after_turn = Some((assembly, component, path));
+        if app.edit_in_place.enter_after_turn.is_some() {
+            return Err(crate::i18n::tr("ui.edit_in_place_already_queued").to_string());
+        }
+        // Everything that would make it fail at the turn's end fails it now.
+        let (context, _) = prepare(app, component, path.clone(), false)?;
+        app.edit_in_place.enter_after_turn = Some((context.assembly, component, path));
         app.set_status(crate::i18n::tr("ui.edit_in_place_opens_after_turn").to_string(), false);
         return Ok(true);
     }
@@ -235,6 +238,15 @@ fn check_enter(app: &SolveApp) -> Result<(), String> {
 /// Open the design the linked component `component` comes from, with the assembly around it as
 /// its placement `path` (default: its first) puts it (`ask`: with the open's questions).
 fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>, ask: bool) -> Result<(), String> {
+    let (context, link) = prepare(app, component, path, ask)?;
+    app.edit_in_place.pending = Some(context);
+    crate::network_prompt::open_linked(app, &link);
+    Ok(())
+}
+
+/// The edit [`enter`] would start, and the link it opens, or why it can't: everything is checked
+/// and nothing changes.
+fn prepare(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>, ask: bool) -> Result<(PartContext, Value), String> {
     check_enter(app)?;
     let Some(assembly) = app.session.path.clone() else {
         return Err(crate::i18n::tr("ui.edit_in_place_save_first").to_string());
@@ -266,7 +278,7 @@ fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>, ask: bool) 
         return Err(app.tr_label("ui.relink_not_linked").to_string());
     };
     let opened = crate::documents::session_at(app, &part).is_none();
-    app.edit_in_place.pending = Some(PartContext {
+    let context = PartContext {
         assembly,
         assembly_name: app.session.doc.name.clone(),
         part,
@@ -276,9 +288,8 @@ fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>, ask: bool) 
         triangles: Arc::new(triangles),
         bounds,
         opened,
-    });
-    crate::network_prompt::open_linked(app, &link);
-    Ok(())
+    };
+    Ok((context, link))
 }
 
 /// The design shown has become the part an edit waits for: the edit starts there. An edit whose
@@ -503,8 +514,10 @@ pub(crate) fn tick(app: &mut SolveApp) {
         }
     }
     // The agent's turn ended: the finish it asked for goes on, as the command would have, in the
-    // part's own tab (shown elsewhere, or edited differently since, it is dropped).
-    if app.agent_chat.state() != crate::agent_chat::State::Busy
+    // part's own tab (shown elsewhere, or edited differently since, it is dropped). What runs in
+    // the design meanwhile (an undo, a file being written) is waited for, not a reason to drop it.
+    let after_turn = app.agent_chat.state() != crate::agent_chat::State::Busy && !busy(app);
+    if after_turn
         && let Some(part) = app.edit_in_place.finish_after_turn.take()
         && app.edit_in_place.active.as_ref().is_some_and(|c| crate::documents::same_path(&c.part, &part))
         && let Err(why) = finish_with(app, false)
@@ -512,7 +525,8 @@ pub(crate) fn tick(app: &mut SolveApp) {
         app.set_status(why, true);
     }
     // Likewise the edit the assembly's agent asked for, from the assembly's tab.
-    if app.agent_chat.state() != crate::agent_chat::State::Busy
+    if after_turn
+        && !busy(app)
         && let Some((assembly, component, path)) = app.edit_in_place.enter_after_turn.take()
         && app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &assembly))
         && let Err(why) = enter(app, component, path, false)

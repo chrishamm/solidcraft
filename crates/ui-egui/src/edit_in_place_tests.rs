@@ -748,6 +748,38 @@ fn the_assemblys_agent_opens_the_part_once_its_turn_ends() {
 }
 
 #[test]
+fn a_queued_edit_is_checked_when_asked_for_and_waits_for_what_runs() {
+    let mut f = assembly("queued-checks");
+    f.app.agent_chat.set_state(crate::agent_chat::State::Busy);
+    // What would fail at the turn's end fails now, where the agent sees it
+    let gone = f.folder.join("post.solidcraft");
+    std::fs::rename(&gone, f.folder.join("moved.solidcraft")).unwrap();
+    let post = f.app.session.doc.links.keys().copied().find(|c| *c != f.plate).unwrap();
+    assert!(f.app.run("component.edit_in_place", json!({"component": post})).is_err());
+    assert_eq!(f.app.run("component.edit_in_place", json!({"component": f.plate})).unwrap()["queued"], json!(true));
+    let e = f.app.run("component.edit_in_place", json!({"component": f.plate})).unwrap_err();
+    assert!(e.contains("already"), "one at a time: {e}");
+    // The turn ends while a command still waits in the design: the edit waits too
+    f.app.agent_chat.set_state(crate::agent_chat::State::Ready);
+    f.app.deferred_queue.push(("view.fit".into(), json!({})));
+    tick(&mut f.app);
+    assert!(f.app.edit_in_place.enter_after_turn.is_some() && f.app.docs.count() == 1);
+    f.app.deferred_queue.clear();
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file));
+}
+
+#[test]
+fn disconnecting_the_agent_forgets_what_it_queued() {
+    let mut f = assembly("disconnected");
+    f.app.agent_chat.set_state(crate::agent_chat::State::Busy);
+    assert_eq!(f.app.run("component.edit_in_place", json!({"component": f.plate})).unwrap()["queued"], json!(true));
+    crate::agent_chat::disconnect(&mut f.app);
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+}
+
+#[test]
 fn stopping_the_agent_forgets_what_it_queued() {
     let mut f = assembly("stopped");
     double_click_component(&mut f.app, json!({"component": f.plate}));

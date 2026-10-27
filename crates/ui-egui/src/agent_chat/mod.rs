@@ -980,6 +980,7 @@ fn connect_at_start(app: &mut SolveApp, ctx: &egui::Context) {
 
 /// Stop the agent (and everything it started); the conversation stays.
 pub fn disconnect(app: &mut SolveApp) {
+    crate::edit_in_place::forget_after_turn(app);
     app.agent_chat.disconnect_document(&mut app.session, false);
 }
 

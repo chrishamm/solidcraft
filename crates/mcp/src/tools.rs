@@ -644,11 +644,6 @@ fn batch_step(step: &Value) -> Result<(String, Value, Option<String>), String> {
         "screenshot" => Err("`screenshot` is a tool, not a command: call it after the batch".into()),
         "batch" => Err("batches don't nest: put the steps in this batch".into()),
         "pending" => Err("`pending` is a tool, not a command: call it on its own".into()),
-        // The window switches to another design's tab for these: the batch's later steps and its
-        // rollback would land in the wrong design.
-        c if solidcraft_engine::find_command(c).is_some_and(|spec| matches!(spec.id, "component.edit_in_place" | "component.finish_edit")) => {
-            Err(format!("`{c}` goes to another design's tab: send it on its own with execute"))
-        }
         "running" => Err("`running` is a tool, not a command: call it on its own".into()),
         "skill_reference" => Err("`skill_reference` is a tool, not a command: call it on its own".into()),
         // An engine command: the step goes as it is.
@@ -767,7 +762,18 @@ fn batch(b: &mut dyn Backend, a: &Map<String, Value>) -> Value {
     let mut mapped: Vec<Value> = Vec::with_capacity(steps.len());
     let mut filters: Vec<(usize, String)> = Vec::new();
     for (i, step) in steps.iter().enumerate() {
-        match batch_step(step) {
+        // The window goes to another design's tab for these, however the step names them: the
+        // batch's later steps and its rollback would land in the wrong design.
+        let step_result = batch_step(step).and_then(|(command, params, filter)| {
+            let id = if command.is_empty() { step.get("command").or_else(|| step.get("id")).and_then(Value::as_str).unwrap_or("") } else { &command };
+            match solidcraft_engine::find_command(id).map(|spec| spec.id) {
+                Some(c @ ("component.edit_in_place" | "component.finish_edit")) => {
+                    Err(format!("`{c}` goes to another design's tab: send it on its own, not in a batch"))
+                }
+                _ => Ok((command, params, filter)),
+            }
+        });
+        match step_result {
             Ok((command, _, _)) if command.is_empty() => mapped.push(step.clone()),
             Ok((command, params, filter)) => {
                 if let Some(f) = filter {
