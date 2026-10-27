@@ -37,7 +37,8 @@ pub enum Kind {
     Recover { id: String, dir: Option<String> },
     /// Export a snapshot of the current design without adopting the worker's session.
     ExportDxf,
-    /// Read the active design's linked designs again (`component.update_links`).
+    /// Read the active design's linked designs again (`component.update_links`, with the
+    /// request's options: `component` reads only that link).
     UpdateLinks,
 }
 
@@ -83,7 +84,7 @@ impl Request {
             Kind::Insert => (insert_command(&self.path), self.params()),
             Kind::Recover { id, dir } => ("doc.recover", json!({"id": id, "dir": dir})),
             Kind::ExportDxf => ("file.export_view_dxf", Value::Object(self.options.clone())),
-            Kind::UpdateLinks => ("component.update_links", json!({})),
+            Kind::UpdateLinks => ("component.update_links", Value::Object(self.options.clone())),
         }
     }
     fn answer(&self, r: Result<Value, String>) {

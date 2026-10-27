@@ -1,0 +1,26 @@
+{
+  "en": {
+    "prefs.linked_designs": "Linked designs",
+    "settings.update_changed_links": "Update linked designs that changed while another tab was open"
+  },
+  "ar": {
+    "prefs.linked_designs": "التصاميم المرتبطة",
+    "settings.update_changed_links": "تحديث التصاميم المرتبطة التي تغيّرت أثناء فتح علامة تبويب أخرى"
+  },
+  "de": {
+    "prefs.linked_designs": "Verknüpfte Designs",
+    "settings.update_changed_links": "Verknüpfte Designs aktualisieren, die sich geändert haben, während ein anderer Tab offen war"
+  },
+  "he": {
+    "prefs.linked_designs": "תכנים מקושרים",
+    "settings.update_changed_links": "עדכון תכנים מקושרים שהשתנו בזמן שלשונית אחרת הייתה פתוחה"
+  },
+  "ja": {
+    "prefs.linked_designs": "リンクされたデザイン",
+    "settings.update_changed_links": "別のタブを開いている間に変更されたリンク先デザインを更新"
+  },
+  "zh": {
+    "prefs.linked_designs": "链接设计",
+    "settings.update_changed_links": "更新在打开其他标签页期间已更改的链接设计"
+  }
+}
