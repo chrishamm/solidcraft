@@ -644,6 +644,11 @@ fn batch_step(step: &Value) -> Result<(String, Value, Option<String>), String> {
         "screenshot" => Err("`screenshot` is a tool, not a command: call it after the batch".into()),
         "batch" => Err("batches don't nest: put the steps in this batch".into()),
         "pending" => Err("`pending` is a tool, not a command: call it on its own".into()),
+        // The window switches to another design's tab for these: the batch's later steps and its
+        // rollback would land in the wrong design.
+        c if solidcraft_engine::find_command(c).is_some_and(|spec| matches!(spec.id, "component.edit_in_place" | "component.finish_edit")) => {
+            Err(format!("`{c}` goes to another design's tab: send it on its own with execute"))
+        }
         "running" => Err("`running` is a tool, not a command: call it on its own".into()),
         "skill_reference" => Err("`skill_reference` is a tool, not a command: call it on its own".into()),
         // An engine command: the step goes as it is.

@@ -715,11 +715,71 @@ fn turned_off_or_unsaved_double_clicking_a_linked_component_does_what_it_did() {
     assert_eq!(f.app.session.active_component, f.plate);
     assert_eq!(f.app.docs.count(), 1);
     assert!(f.app.edit_in_place.active.is_none());
-    // An assembly never saved has no folder to find its links from
+    // An assembly never saved has no folder to find its links from: the double-click activates
     let mut fresh = SolveApp::new(Session::default(), Default::default());
     let linked = fresh.run("component.insert_design", json!({"path": f.plate_file})).unwrap()["component"].as_u64().unwrap();
+    fresh.run("component.activate", json!({"component": "root"})).unwrap();
     double_click_component(&mut fresh, json!({"component": linked}));
     settle(&mut fresh);
     assert!(fresh.edit_in_place.active.is_none() && fresh.edit_in_place.pending.is_none());
-    assert!(fresh.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", fresh.status);
+    assert_eq!(fresh.session.active_component, linked);
+    // Asked as a command, it says why
+    let e = fresh.run("component.edit_in_place", json!({"component": linked})).unwrap_err();
+    assert!(e.contains("Save the assembly first"), "{e}");
+}
+
+#[test]
+fn the_assemblys_agent_opens_the_part_once_its_turn_ends() {
+    let mut f = assembly("enter-agent");
+    f.app.agent_chat.set_state(crate::agent_chat::State::Busy);
+    // A double-click would stop the agent mid-turn: refused
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.status.as_ref().is_some_and(|(s, _, error)| *error && s.contains("agent")), "{:?}", f.app.status);
+    // The agent asks: queued, and said so
+    let r = f.app.run("component.edit_in_place", json!({"component": f.plate})).unwrap();
+    assert_eq!(r["queued"], json!(true), "{r}");
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1, "not during the turn");
+    f.app.agent_chat.set_state(crate::agent_chat::State::Ready);
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file) && f.app.edit_in_place.active.is_some());
+}
+
+#[test]
+fn stopping_the_agent_forgets_what_it_queued() {
+    let mut f = assembly("stopped");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.agent_chat.set_state(crate::agent_chat::State::Busy);
+    assert_eq!(f.app.run("component.finish_edit", json!({})).unwrap()["queued"], json!(true));
+    crate::agent_chat::cancel(&mut f.app);
+    f.app.agent_chat.set_state(crate::agent_chat::State::Ready);
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file) && f.app.edit_in_place.active.is_some(), "Stop means stop");
+}
+
+#[test]
+fn a_command_queued_in_the_assembly_holds_up_entering() {
+    let mut f = assembly("queued-enter");
+    f.app.deferred_queue.push(("view.fit".into(), json!({})));
+    let e = f.app.run("component.edit_in_place", json!({"component": f.plate})).unwrap_err();
+    assert!(e.contains("Wait"), "{e}");
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1, "the queued command lands in the assembly, not the part");
+}
+
+#[test]
+fn a_refresh_taken_up_in_the_assemblys_tab_redraws_the_parts_tab_too() {
+    let mut f = assembly("watched");
+    f.app.preferences.update_changed_links = false;
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    crate::documents::switch(&mut f.app, 0);
+    settle(&mut f.app);
+    crate::documents::switch(&mut f.app, 1);
+    assert!((context(&f.app).bounds.max.z - 20.0).abs() < 1e-6, "the post's new box shows: {:?}", context(&f.app).bounds);
 }

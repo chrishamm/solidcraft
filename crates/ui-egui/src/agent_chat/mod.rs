@@ -1417,6 +1417,7 @@ pub(crate) fn attach_dropped(app: &mut SolveApp, paths: impl Iterator<Item = std
 pub fn cancel(app: &mut SolveApp) {
     app.agent_chat.steering = false;
     app.agent_chat.stopped = true;
+    crate::edit_in_place::forget_after_turn(app);
     interrupt(app);
 }
 

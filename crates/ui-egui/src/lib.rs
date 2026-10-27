@@ -992,8 +992,9 @@ impl SolveApp {
     pub(crate) fn command_completed(&mut self, id: &str, r: Result<Value, String>) -> Result<Value, String> {
         // The engine has no edit in place to start or finish; the window does, and says when it can't.
         let r = match solidcraft_engine::find_command(id).map(|spec| spec.id) {
-            Some("component.edit_in_place") => r.and_then(|v| edit_in_place::command_ran(self, &v).map(|()| v)),
-            Some("component.finish_edit") => r.and_then(|v| edit_in_place::finish_command(self).map(|()| v)),
+            // `queued`: it waits for the end of the agent's turn.
+            Some("component.edit_in_place") => r.and_then(|v| edit_in_place::command_ran(self, &v).map(|queued| with_queued(v, queued))),
+            Some("component.finish_edit") => r.and_then(|v| edit_in_place::finish_command(self).map(|queued| with_queued(v, queued))),
             _ => r,
         };
         if let Ok(v) = &r {
@@ -2526,6 +2527,14 @@ impl SolveApp {
 /// shown: the screenshot deadline still ends a wait for a frame that never comes.
 fn window_hidden(ctx: &egui::Context) -> bool {
     ctx.input(|i| i.viewport().visible()) == Some(false)
+}
+
+/// An edit in place command's result, saying when it waits for the end of the agent's turn.
+fn with_queued(mut result: Value, queued: bool) -> Value {
+    if queued && let Some(o) = result.as_object_mut() {
+        o.insert("queued".into(), Value::Bool(true));
+    }
+    result
 }
 
 /// A command's name as people see it (its label), for the status bar.

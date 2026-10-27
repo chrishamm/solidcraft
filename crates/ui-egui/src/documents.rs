@@ -247,6 +247,13 @@ pub(crate) fn session_at<'a>(app: &'a SolveApp, path: &str) -> Option<&'a Sessio
     app.docs.slots.iter().flatten().map(|s| &s.session).find(|s| saved_at(s))
 }
 
+/// Every edit in place: of the tab shown, and of the tabs in the background.
+pub(crate) fn edits_mut(app: &mut SolveApp) -> Vec<&mut crate::edit_in_place::PartContext> {
+    let mut edits: Vec<_> = app.docs.slots.iter_mut().flatten().filter_map(|s| s.edit_in_place.as_mut()).collect();
+    edits.extend(app.edit_in_place.active.as_mut());
+    edits
+}
+
 /// The open design saved at `path` read every link again without an error, from the files as
 /// `stamps` found them: its record of them (`Documents::link_stamps`, or its tab's) is now that.
 pub(crate) fn record_stamps_at(app: &mut SolveApp, path: &str, stamps: &[(u64, crate::linked_source::Stamp)]) {
