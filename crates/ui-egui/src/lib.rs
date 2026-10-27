@@ -995,6 +995,8 @@ impl SolveApp {
         if let Ok(v) = &r {
             match id {
                 "view.fit" | "view.home" => self.frame_view(id == "view.home"),
+                // Run as a command, it reaches no `start`: the assembly around the part follows here.
+                "component.update_links" if self.edit_in_place.active.is_some() => edit_in_place::refresh(self),
                 "view.tool" => {
                     self.viewport.nav = match v.get("tool").and_then(Value::as_str) {
                         Some("orbit") => Some(viewport::NavMode::Orbit),

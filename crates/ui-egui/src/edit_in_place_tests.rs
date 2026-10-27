@@ -148,6 +148,22 @@ fn update_links_in_the_part_refreshes_the_assembly_around_it() {
 }
 
 #[test]
+fn update_links_run_as_a_command_in_the_part_refreshes_the_assembly_too() {
+    let mut f = assembly("refresh-command");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    f.app.run("component.update_links", json!({})).unwrap();
+    assert!(f.app.edit_in_place.refreshing());
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file));
+    let after = context(&f.app);
+    assert!((after.bounds.max.z - 20.0).abs() < 1e-6, "the post's new box shows: {:?}", after.bounds);
+    let assembly = crate::documents::session_at(&f.app, &after.assembly).unwrap();
+    assert!((volume_of(assembly, "") - 7250.0).abs() < 1e-6, "{}", volume_of(assembly, ""));
+}
+
+#[test]
 fn looking_at_the_assembly_while_it_refreshes_keeps_the_refresh() {
     for update_changed_links in [false, true] {
         let mut f = assembly(&format!("looked-{update_changed_links}"));
