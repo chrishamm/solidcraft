@@ -617,8 +617,8 @@ preference_settings! {
     /// A design coming back to its tab reads again the linked designs whose files changed since
     /// it last read them. Off: they wait for Update Links, as before.
     update_changed_links: bool = true, PAGE_DESIGN => check_id("settings.update_changed_links");
-    /// Activating a linked component opens its design with the assembly around it
-    /// (`edit_in_place`). Off: it becomes the active component, as before.
+    /// Double-clicking a linked component, in the browser or the view, opens its design with the
+    /// assembly around it (`edit_in_place`). Off: a double-click activates it, as before.
     edit_linked_in_place: bool = true, PAGE_DESIGN => check_id("settings.edit_linked_in_place");
     /// Reopen the saved designs that were open when the app was last closed (#5542).
     reopen_designs: bool = true, PAGE_GENERAL;

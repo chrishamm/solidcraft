@@ -82,7 +82,7 @@ fn context(app: &SolveApp) -> PartContext {
 #[test]
 fn a_linked_component_is_edited_in_place_and_finish_editing_updates_the_assembly() {
     let mut f = assembly("finish");
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     // The part in a tab of its own, the post around it in the part's frame
     assert_eq!(f.app.docs.count(), 2);
@@ -106,7 +106,7 @@ fn a_linked_component_is_edited_in_place_and_finish_editing_updates_the_assembly
 fn with_changed_links_left_alone_finish_editing_updates_the_assembly_itself() {
     let mut f = assembly("finish-manual");
     f.app.preferences.update_changed_links = false;
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     f.app.run("solid.box", json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
     finish(&mut f.app);
@@ -118,7 +118,7 @@ fn with_changed_links_left_alone_finish_editing_updates_the_assembly_itself() {
 #[test]
 fn update_links_in_the_part_refreshes_the_assembly_around_it() {
     let mut f = assembly("refresh");
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     let before = context(&f.app);
     // The post grows on disk (another window, a checkout) while the plate is edited
@@ -147,7 +147,7 @@ fn a_refresh_for_an_assembly_changed_meanwhile_is_dropped() {
     let mut f = assembly("dropped");
     // Coming back to the assembly would read the changed post itself: only the edit made there counts here
     f.app.preferences.update_changed_links = false;
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     save_box(&f.post_file, [10.0, 10.0, 10.0], true);
     refresh(&mut f.app);
@@ -169,7 +169,7 @@ fn a_refresh_for_an_assembly_changed_meanwhile_is_dropped() {
 #[test]
 fn with_the_assembly_closed_the_edit_stays_and_says_so() {
     let mut f = assembly("closed");
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     crate::documents::close(&mut f.app, 0, false);
     assert_eq!(f.app.docs.count(), 1);
@@ -193,7 +193,7 @@ fn a_part_already_open_is_reused_and_stays_open() {
     opened.execute("doc.open", &json!({"path": f.plate_file})).unwrap();
     crate::documents::open_tab(&mut f.app, opened).unwrap();
     crate::documents::switch(&mut f.app, 0);
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     assert_eq!(f.app.docs.count(), 2);
     assert!(showing(&f.app, &f.plate_file));
@@ -211,7 +211,7 @@ fn a_turned_placement_draws_the_assembly_turned_the_other_way() {
     let turn = json!({"occurrence": "plate:1", "space": "world", "axis": [0, 0, 1], "angle": "90 deg", "origin": [50, 0, 0], "move_grounded": true});
     f.app.run("occurrence.move", turn).unwrap();
     f.app.run("file.save", json!({})).unwrap();
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     // The post at x -100..-90, y 0..10 lies along +Y of the turned plate: x 0..10, y 140..150
     let b = context(&f.app).bounds;
@@ -226,7 +226,7 @@ fn a_second_placement_is_the_frame_and_no_copy_of_the_part_is_context() {
     assert_eq!(second["component"].as_u64(), Some(f.plate), "{second}");
     f.app.run("file.save", json!({})).unwrap();
     let (_, path, world) = f.app.session.doc.placements().into_iter().find(|(c, _, world)| *c == f.plate && world[3][1] > 50.0).unwrap();
-    activate(&mut f.app, json!({"component": f.plate, "path": path}));
+    double_click_component(&mut f.app, json!({"component": f.plate, "path": path}));
     settle(&mut f.app);
     let c = context(&f.app);
     assert_eq!(c.bodies.len(), 1, "both placements of the plate are the part itself");
@@ -237,10 +237,63 @@ fn a_second_placement_is_the_frame_and_no_copy_of_the_part_is_context() {
 }
 
 #[test]
+fn double_clicking_a_linked_part_in_the_view_edits_the_placement_clicked() {
+    let mut f = assembly("double");
+    f.app.run("component.insert_design", json!({"path": f.plate_file, "translate": [0, 100, 0], "reuse": true})).unwrap();
+    f.app.run("file.save", json!({})).unwrap();
+    let (_, path, world) = f.app.session.doc.placements().into_iter().find(|(c, _, world)| *c == f.plate && world[3][1] > 50.0).unwrap();
+    let body = f.app.session.occurrence_bodies(&path, true).unwrap().into_iter().next().unwrap();
+    assert!(double_click_face(&mut f.app, &body));
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file));
+    let c = context(&f.app);
+    assert_eq!(c.placement, path, "the placement whose face was clicked, not the first one");
+    assert!((c.bounds.min.y - -world[3][1]).abs() < 1e-6, "{:?}", c.bounds);
+}
+
+#[test]
+fn double_clicking_a_body_of_this_design_or_with_the_preference_off_does_nothing_here() {
+    let mut f = assembly("double-off");
+    let made = f.app.run("solid.box", json!({"length": 5, "width": 5, "height": 5, "corner": [0, -200, 0], "operation": "new"})).unwrap();
+    let own = made["created_bodies"][0].as_str().unwrap().to_string();
+    assert!(!double_click_face(&mut f.app, &own), "a body modelled here is not a linked design");
+    let linked = f.app.session.occurrence_bodies(&f.app.session.doc.first_path(f.plate), true).unwrap().into_iter().next().unwrap();
+    f.app.preferences.edit_linked_in_place = false;
+    assert!(!double_click_face(&mut f.app, &linked));
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.edit_in_place.active.is_none() && f.app.edit_in_place.pending.is_none());
+}
+
+#[test]
+fn activate_only_activates_and_edit_in_place_opens_the_placement_right_clicked() {
+    use crate::context_menu::{self, Target};
+    let mut f = assembly("menu");
+    let inserted = f.app.run("component.insert_design", json!({"path": f.plate_file, "translate": [0, 100, 0], "reuse": true})).unwrap();
+    let second = inserted["occurrence"].as_u64().unwrap();
+    f.app.run("file.save", json!({})).unwrap();
+    let item = |app: &SolveApp, target: Target, id: &str| context_menu::items(app, &target).into_iter().find(|i| i.id == id).unwrap();
+    // Activate: the linked component becomes the active one, nothing opens
+    let activate = item(&f.app, Target::Component { id: f.plate }, "ui.activate");
+    context_menu::run_item(&mut f.app, &activate, egui::Pos2::ZERO);
+    settle(&mut f.app);
+    assert_eq!(f.app.session.active_component, f.plate);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.edit_in_place.active.is_none() && f.app.edit_in_place.pending.is_none());
+    // Edit in Place on the second placement: the part opens around that one
+    let path = f.app.session.doc.placements().into_iter().map(|(_, path, _)| path).find(|p| p.last() == Some(&second)).unwrap();
+    let edit = item(&f.app, Target::Occurrence { path: path.clone() }, "ui.editInPlace");
+    context_menu::run_item(&mut f.app, &edit, egui::Pos2::ZERO);
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file));
+    assert_eq!(context(&f.app).placement, path);
+}
+
+#[test]
 fn turned_off_or_unsaved_activating_a_linked_component_does_what_it_did() {
     let mut f = assembly("off");
     f.app.preferences.edit_linked_in_place = false;
-    activate(&mut f.app, json!({"component": f.plate}));
+    double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     assert_eq!(f.app.session.active_component, f.plate);
     assert_eq!(f.app.docs.count(), 1);
@@ -248,7 +301,7 @@ fn turned_off_or_unsaved_activating_a_linked_component_does_what_it_did() {
     // An assembly never saved has no folder to find its links from
     let mut fresh = SolveApp::new(Session::default(), Default::default());
     let linked = fresh.run("component.insert_design", json!({"path": f.plate_file})).unwrap()["component"].as_u64().unwrap();
-    activate(&mut fresh, json!({"component": linked}));
+    double_click_component(&mut fresh, json!({"component": linked}));
     settle(&mut fresh);
     assert!(fresh.edit_in_place.active.is_none() && fresh.edit_in_place.pending.is_none());
     assert!(fresh.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", fresh.status);

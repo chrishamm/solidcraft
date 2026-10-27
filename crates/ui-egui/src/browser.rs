@@ -1391,7 +1391,7 @@ fn component_rows_inner(
         toggle(app, key, true);
     }
     if r.radio {
-        crate::edit_in_place::activate(app, json!({ "component": id }));
+        let _ = app.run("component.activate", json!({ "component": id }));
     }
     if r.eye {
         if visible {
@@ -1422,7 +1422,7 @@ fn component_rows_inner(
         if app.session.doc.parts.contains_key(&id) {
             crate::dialogs_part_size::open(app, id);
         } else {
-            crate::edit_in_place::activate(app, json!({ "component": id }));
+            crate::edit_in_place::double_click_component(app, json!({ "component": id }));
         }
     }
     if r.hovered {
@@ -1553,8 +1553,11 @@ fn occurrence_rows_inner(
     if r.eye {
         let _ = app.run("browser.visibility", json!({"visible": app.session.occurrence_hidden(path), "paths": [path]}));
     }
-    if r.radio || (r.double && !app.session.doc.parts.contains_key(&placement.component)) {
-        crate::edit_in_place::activate(app, json!({"component": placement.component, "occurrence": placement.occurrence, "path": path}));
+    let params = json!({"component": placement.component, "occurrence": placement.occurrence, "path": path});
+    if r.radio {
+        let _ = app.run("component.activate", params);
+    } else if r.double && !app.session.doc.parts.contains_key(&placement.component) {
+        crate::edit_in_place::double_click_component(app, params);
     }
     if r.double && app.session.doc.parts.contains_key(&placement.component) {
         crate::dialogs_part_size::open(app, placement.component);

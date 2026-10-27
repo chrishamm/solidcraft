@@ -67,9 +67,10 @@ impl EditInPlace {
     }
 }
 
-/// Activate a component: a linked one is edited in place (Preferences: `edit_linked_in_place`),
-/// any other is made the active component (`component.activate` with `params`).
-pub(crate) fn activate(app: &mut SolveApp, params: Value) {
+/// A component double-clicked in the browser: a linked one is edited in place (Preferences:
+/// `edit_linked_in_place`), any other is made the active component (`component.activate` with
+/// `params`). Activate itself always does the latter.
+pub(crate) fn double_click_component(app: &mut SolveApp, params: Value) {
     let component = params["component"].as_u64().unwrap_or(0);
     if app.preferences.edit_linked_in_place && app.session.doc.links.contains_key(&component) {
         let path = params["path"].as_array().map(|p| p.iter().filter_map(Value::as_u64).collect::<Vec<_>>());
@@ -77,6 +78,28 @@ pub(crate) fn activate(app: &mut SolveApp, params: Value) {
     } else {
         let _ = app.run("component.activate", params);
     }
+}
+
+/// A face of the body `body` double-clicked in the view: when it is a linked component's, that
+/// component is edited in place around the placement the body belongs to. Whether it was.
+pub(crate) fn double_click_face(app: &mut SolveApp, body: &str) -> bool {
+    if !app.preferences.edit_linked_in_place {
+        return false;
+    }
+    let Some(component) = app.session.world_state().body(body).map(|b| b.component) else { return false };
+    if !app.session.doc.links.contains_key(&component) {
+        return false;
+    }
+    let placement = app
+        .session
+        .doc
+        .placements()
+        .into_iter()
+        .filter(|(c, _, _)| *c == component)
+        .map(|(_, path, _)| path)
+        .find(|path| app.session.occurrence_bodies(path, true).is_ok_and(|bodies| bodies.iter().any(|b| b == body)));
+    enter(app, component, placement);
+    true
 }
 
 /// Something runs that a change of the design shown would spoil.
