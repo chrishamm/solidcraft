@@ -80,7 +80,7 @@ pub(super) fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
     });
     ui_kit::settings_section(ui, "linked_designs", app.tr("prefs.linked_designs"), |ui| {
         setting::update_changed_links(app, ui);
-        setting::edit_linked_in_place(app, ui);
+        setting::double_click_components(app, ui);
     });
     // Where the files a design names may be: never a network location the user hasn't allowed.
     ui_kit::settings_section(ui, "network_locations", app.tr("prefs.network_locations_section"), |ui| {

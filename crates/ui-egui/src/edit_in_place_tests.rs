@@ -252,13 +252,28 @@ fn double_clicking_a_linked_part_in_the_view_edits_the_placement_clicked() {
 }
 
 #[test]
+fn double_clicking_a_component_modelled_here_activates_it_once() {
+    let mut f = assembly("double-activate");
+    let bracket = f.app.run("component.create", json!({"name": "Bracket"})).unwrap()["component"].as_u64().unwrap();
+    let made = f.app.run("solid.box", json!({"length": 5, "width": 5, "height": 5, "corner": [0, -200, 0]})).unwrap();
+    let body = made["created_bodies"][0].as_str().unwrap().to_string();
+    f.app.run("component.activate", json!({"component": "root"})).unwrap();
+    assert!(double_click_face(&mut f.app, &body));
+    assert_eq!(f.app.session.active_component, bracket);
+    assert_eq!(f.app.docs.count(), 1, "a component modelled here opens nothing");
+    assert!(f.app.edit_in_place.active.is_none() && f.app.edit_in_place.pending.is_none());
+    // Active already: the double-click is left to whatever the face itself offers
+    assert!(!double_click_face(&mut f.app, &body));
+}
+
+#[test]
 fn double_clicking_a_body_of_this_design_or_with_the_preference_off_does_nothing_here() {
     let mut f = assembly("double-off");
     let made = f.app.run("solid.box", json!({"length": 5, "width": 5, "height": 5, "corner": [0, -200, 0], "operation": "new"})).unwrap();
     let own = made["created_bodies"][0].as_str().unwrap().to_string();
     assert!(!double_click_face(&mut f.app, &own), "a body modelled here is not a linked design");
     let linked = f.app.session.occurrence_bodies(&f.app.session.doc.first_path(f.plate), true).unwrap().into_iter().next().unwrap();
-    f.app.preferences.edit_linked_in_place = false;
+    f.app.preferences.double_click_components = false;
     assert!(!double_click_face(&mut f.app, &linked));
     settle(&mut f.app);
     assert_eq!(f.app.docs.count(), 1);
@@ -292,7 +307,7 @@ fn activate_only_activates_and_edit_in_place_opens_the_placement_right_clicked()
 #[test]
 fn turned_off_or_unsaved_activating_a_linked_component_does_what_it_did() {
     let mut f = assembly("off");
-    f.app.preferences.edit_linked_in_place = false;
+    f.app.preferences.double_click_components = false;
     double_click_component(&mut f.app, json!({"component": f.plate}));
     settle(&mut f.app);
     assert_eq!(f.app.session.active_component, f.plate);

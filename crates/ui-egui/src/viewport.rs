@@ -4160,10 +4160,11 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
                 .collect();
             let _ = app.run("select.set", json!({ "items": items, "add": add }));
         }
-        // Double-click a linked component's face: edit its design in place.
+        // Double-click a component's face: edit a linked one in place, activate any other.
         if resp.double_clicked()
             && !held
             && !dim_edit
+            && mods.is_none()
             && app.tool.is_none()
             && app.dialog.is_none()
             && app.session.active_sketch.is_none()

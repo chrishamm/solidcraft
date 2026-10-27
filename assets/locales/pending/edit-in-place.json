@@ -1,6 +1,6 @@
 {
   "en": {
-    "settings.edit_linked_in_place": "Double-clicking a linked component edits its design in place",
+    "settings.double_click_components": "Double-click a component to activate it, or to edit a linked one in place",
     "ui.edit_in_place": "Edit in Place",
     "ui.edit_in_place_assembly_closed": "{name} is no longer open",
     "ui.edit_in_place_banner": "Editing in {name}",
@@ -10,7 +10,7 @@
     "ui.finish_editing": "Finish Editing"
   },
   "ar": {
-    "settings.edit_linked_in_place": "النقر المزدوج على مكوّن مرتبط يحرّر تصميمه في مكانه",
+    "settings.double_click_components": "انقر نقرًا مزدوجًا على مكوّن لتنشيطه، أو لتحرير مكوّن مرتبط في مكانه",
     "ui.edit_in_place": "تحرير في المكان",
     "ui.edit_in_place_assembly_closed": "{name} لم يعد مفتوحًا",
     "ui.edit_in_place_banner": "تحرير داخل {name}",
@@ -20,7 +20,7 @@
     "ui.finish_editing": "إنهاء التحرير"
   },
   "de": {
-    "settings.edit_linked_in_place": "Doppelklick auf eine verknüpfte Komponente bearbeitet ihr Design an Ort und Stelle",
+    "settings.double_click_components": "Doppelklick auf eine Komponente aktiviert sie oder bearbeitet eine verknüpfte an Ort und Stelle",
     "ui.edit_in_place": "An Ort und Stelle bearbeiten",
     "ui.edit_in_place_assembly_closed": "{name} ist nicht mehr geöffnet",
     "ui.edit_in_place_banner": "Bearbeitung in {name}",
@@ -30,7 +30,7 @@
     "ui.finish_editing": "Bearbeitung beenden"
   },
   "he": {
-    "settings.edit_linked_in_place": "לחיצה כפולה על רכיב מקושר עורכת את התכן שלו במקומו",
+    "settings.double_click_components": "לחיצה כפולה על רכיב מפעילה אותו, או עורכת רכיב מקושר במקומו",
     "ui.edit_in_place": "עריכה במקום",
     "ui.edit_in_place_assembly_closed": "{name} כבר אינו פתוח",
     "ui.edit_in_place_banner": "עריכה בתוך {name}",
@@ -40,7 +40,7 @@
     "ui.finish_editing": "סיום עריכה"
   },
   "ja": {
-    "settings.edit_linked_in_place": "リンクされたコンポーネントをダブルクリックすると、そのデザインをその場で編集する",
+    "settings.double_click_components": "コンポーネントをダブルクリックしてアクティブにする、またはリンクされたものをその場で編集する",
     "ui.edit_in_place": "その場で編集",
     "ui.edit_in_place_assembly_closed": "{name} はもう開いていません",
     "ui.edit_in_place_banner": "{name} 内で編集中",
@@ -50,7 +50,7 @@
     "ui.finish_editing": "編集を終了"
   },
   "vi": {
-    "settings.edit_linked_in_place": "Nhấp đúp vào một thành phần liên kết sẽ chỉnh sửa thiết kế của nó tại chỗ",
+    "settings.double_click_components": "Nhấp đúp vào một thành phần để kích hoạt nó, hoặc chỉnh sửa tại chỗ một thành phần liên kết",
     "ui.edit_in_place": "Chỉnh sửa tại chỗ",
     "ui.edit_in_place_assembly_closed": "{name} không còn mở",
     "ui.edit_in_place_banner": "Đang chỉnh sửa trong {name}",
@@ -60,7 +60,7 @@
     "ui.finish_editing": "Kết thúc chỉnh sửa"
   },
   "zh": {
-    "settings.edit_linked_in_place": "双击链接组件时在原位编辑其设计",
+    "settings.double_click_components": "双击组件以激活它，或在原位编辑链接组件",
     "ui.edit_in_place": "原位编辑",
     "ui.edit_in_place_assembly_closed": "{name} 已不再打开",
     "ui.edit_in_place_banner": "正在 {name} 中编辑",
