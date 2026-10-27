@@ -1,0 +1,255 @@
+use super::*;
+use serde_json::json;
+use solidcraft_engine::Session;
+
+fn volume_of(session: &Session, prefix: &str) -> f64 {
+    session
+        .world_state()
+        .bodies
+        .iter()
+        .filter(|b| b.name.starts_with(prefix))
+        .map(|b| solidcraft_engine::kernel::measure(&b.body).unwrap().volume)
+        .sum()
+}
+
+fn volume(app: &SolveApp) -> f64 {
+    volume_of(&app.session, "")
+}
+
+/// Ticks the window's background work until it is done: opens, saves, Update Links and the
+/// assembly refresh of an edit in place.
+fn settle(app: &mut SolveApp) {
+    let ctx = egui::Context::default();
+    let began = std::time::Instant::now();
+    while !app.file_load.idle() || app.saving.is_some() || app.edit_in_place.finish_after_save || app.edit_in_place.refreshing() {
+        assert!(began.elapsed() < std::time::Duration::from_secs(120), "the background work went on");
+        crate::file_load::tick(app, &ctx);
+        crate::save_job::tick(app, false);
+        tick(app);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Saves a box design at `path`; `extra` adds a second box on top of it.
+fn save_box(path: &std::path::Path, size: [f64; 3], extra: bool) {
+    let mut s = Session::default();
+    s.execute("solid.box", &json!({"length": size[0], "width": size[1], "height": size[2]})).unwrap();
+    if extra {
+        s.execute("solid.box", &json!({"length": 5, "width": 5, "height": 10, "corner": [0, 0, size[2]], "operation": "join"})).unwrap();
+    }
+    s.execute("file.save", &json!({"path": path, "overwrite": true})).unwrap();
+}
+
+struct Fixture {
+    app: SolveApp,
+    folder: std::path::PathBuf,
+    plate: u64,
+    plate_file: std::path::PathBuf,
+    post_file: std::path::PathBuf,
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
+}
+
+/// An assembly that links a 10x20x30 plate placed 50 mm along X and a 10 mm post cube placed
+/// 100 mm the other way, saved next to them.
+fn assembly(name: &str) -> Fixture {
+    let folder = std::env::temp_dir().join(format!("solidcraft-edit-in-place-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let (plate_file, post_file) = (folder.join("plate.solidcraft"), folder.join("post.solidcraft"));
+    save_box(&plate_file, [10.0, 20.0, 30.0], false);
+    save_box(&post_file, [10.0, 10.0, 10.0], false);
+    let mut app = SolveApp::new(Session::default(), Default::default());
+    let plate = app.run("component.insert_design", json!({"path": plate_file, "translate": [50, 0, 0]})).unwrap()["component"].as_u64().unwrap();
+    app.run("component.insert_design", json!({"path": post_file, "translate": [-100, 0, 0]})).unwrap();
+    app.run("file.save", json!({"path": folder.join("case.solidcraft")})).unwrap();
+    assert!((volume(&app) - 7000.0).abs() < 1e-6);
+    Fixture { app, folder, plate, plate_file, post_file }
+}
+
+fn showing(app: &SolveApp, file: &std::path::Path) -> bool {
+    app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &file.to_string_lossy()))
+}
+
+fn context(app: &SolveApp) -> PartContext {
+    app.edit_in_place.active.clone().expect("a part is edited in place")
+}
+
+#[test]
+fn a_linked_component_is_edited_in_place_and_finish_editing_updates_the_assembly() {
+    let mut f = assembly("finish");
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    // The part in a tab of its own, the post around it in the part's frame
+    assert_eq!(f.app.docs.count(), 2);
+    assert!(showing(&f.app, &f.plate_file));
+    let c = context(&f.app);
+    assert!(c.opened);
+    assert_eq!(c.bodies.len(), 1, "only the post: the part's own bodies are not context");
+    assert!((c.bounds.min.x - -150.0).abs() < 1e-6 && (c.bounds.max.x - -140.0).abs() < 1e-6, "{:?}", c.bounds);
+    assert!((volume(&f.app) - 6000.0).abs() < 1e-6, "the part's own design, not the assembly");
+    // Changed and finished: saved, back in the assembly, the part's tab closed, the link read again
+    f.app.run("solid.box", json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_none());
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.session.path.as_deref().is_some_and(|p| p.ends_with("case.solidcraft")));
+    assert!((volume(&f.app) - 8000.0).abs() < 1e-6, "{}", volume(&f.app));
+}
+
+#[test]
+fn with_changed_links_left_alone_finish_editing_updates_the_assembly_itself() {
+    let mut f = assembly("finish-manual");
+    f.app.preferences.update_changed_links = false;
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.run("solid.box", json!({"length": 10, "width": 10, "height": 10, "operation": "new"})).unwrap();
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!((volume(&f.app) - 8000.0).abs() < 1e-6, "Finish Editing promises the change: {}", volume(&f.app));
+}
+
+#[test]
+fn update_links_in_the_part_refreshes_the_assembly_around_it() {
+    let mut f = assembly("refresh");
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    let before = context(&f.app);
+    // The post grows on disk (another window, a checkout) while the plate is edited
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    f.app.start("component.update_links");
+    assert!(f.app.edit_in_place.refreshing(), "the assembly is read again off the window thread");
+    assert!(f.app.status.as_ref().is_some_and(|(s, _, error)| s.starts_with("Updating links in") && !error), "{:?}", f.app.status);
+    settle(&mut f.app);
+    // Still in the part, the assembly's tab updated and the picture around the part with it
+    assert!(showing(&f.app, &f.plate_file));
+    let after = context(&f.app);
+    assert!(!Arc::ptr_eq(&before.bodies, &after.bodies));
+    assert!((after.bounds.max.z - 20.0).abs() < 1e-6, "the post's new box shows: {:?}", after.bounds);
+    let assembly = crate::documents::session_at(&f.app, &after.assembly).unwrap();
+    assert!((volume_of(assembly, "") - 7250.0).abs() < 1e-6, "{}", volume_of(assembly, ""));
+    assert!(assembly.is_dirty(), "the assembly keeps its own copy of the linked bodies");
+    assert_eq!(f.app.status.as_ref().map(|s| s.0.as_str()), Some("Update Links done"));
+    // Finishing afterwards changes nothing more in the assembly
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert!((volume(&f.app) - 7250.0).abs() < 1e-6, "{}", volume(&f.app));
+}
+
+#[test]
+fn a_refresh_for_an_assembly_changed_meanwhile_is_dropped() {
+    let mut f = assembly("dropped");
+    // Coming back to the assembly would read the changed post itself: only the edit made there counts here
+    f.app.preferences.update_changed_links = false;
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    // Before the result is taken up, the assembly changes in its own tab
+    crate::documents::switch(&mut f.app, 0);
+    f.app.run("solid.box", json!({"length": 1, "width": 1, "height": 1, "corner": [0, 300, 0], "operation": "new"})).unwrap();
+    crate::documents::switch(&mut f.app, 1);
+    settle(&mut f.app);
+    let assembly = crate::documents::session_at(&f.app, &context(&f.app).assembly).unwrap();
+    assert!((volume_of(assembly, "") - 7001.0).abs() < 1e-6, "the change made meanwhile stays, the stale result goes: {}", volume_of(assembly, ""));
+    assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", f.app.status);
+    // Run again, it goes through
+    refresh(&mut f.app);
+    settle(&mut f.app);
+    let assembly = crate::documents::session_at(&f.app, &context(&f.app).assembly).unwrap();
+    assert!((volume_of(assembly, "") - 7251.0).abs() < 1e-6, "{}", volume_of(assembly, ""));
+}
+
+#[test]
+fn with_the_assembly_closed_the_edit_stays_and_says_so() {
+    let mut f = assembly("closed");
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    crate::documents::close(&mut f.app, 0, false);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(showing(&f.app, &f.plate_file));
+    refresh(&mut f.app);
+    assert!(!f.app.edit_in_place.refreshing());
+    assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", f.app.status);
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_some(), "nothing to go back to: the edit stays");
+    assert!(showing(&f.app, &f.plate_file));
+    // Closing the part's tab ends the edit with it
+    crate::documents::close(&mut f.app, 0, true);
+    assert!(f.app.edit_in_place.active.is_none());
+}
+
+#[test]
+fn a_part_already_open_is_reused_and_stays_open() {
+    let mut f = assembly("reused");
+    let mut opened = Session::default();
+    opened.execute("doc.open", &json!({"path": f.plate_file})).unwrap();
+    crate::documents::open_tab(&mut f.app, opened).unwrap();
+    crate::documents::switch(&mut f.app, 0);
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 2);
+    assert!(showing(&f.app, &f.plate_file));
+    assert!(!context(&f.app).opened);
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 2, "the tab was there before the edit, so it stays");
+    assert!(f.app.session.path.as_deref().is_some_and(|p| p.ends_with("case.solidcraft")));
+}
+
+#[test]
+fn a_turned_placement_draws_the_assembly_turned_the_other_way() {
+    let mut f = assembly("turned");
+    // A quarter turn about Z through the plate's origin
+    let turn = json!({"occurrence": "plate:1", "space": "world", "axis": [0, 0, 1], "angle": "90 deg", "origin": [50, 0, 0], "move_grounded": true});
+    f.app.run("occurrence.move", turn).unwrap();
+    f.app.run("file.save", json!({})).unwrap();
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    // The post at x -100..-90, y 0..10 lies along +Y of the turned plate: x 0..10, y 140..150
+    let b = context(&f.app).bounds;
+    assert!((b.min.y - 140.0).abs() < 1e-6 && (b.max.y - 150.0).abs() < 1e-6, "{b:?}");
+    assert!((b.min.x - 0.0).abs() < 1e-6 && (b.max.x - 10.0).abs() < 1e-6, "{b:?}");
+}
+
+#[test]
+fn a_second_placement_is_the_frame_and_no_copy_of_the_part_is_context() {
+    let mut f = assembly("second");
+    let second = f.app.run("component.insert_design", json!({"path": f.plate_file, "translate": [0, 100, 0], "reuse": true})).unwrap();
+    assert_eq!(second["component"].as_u64(), Some(f.plate), "{second}");
+    f.app.run("file.save", json!({})).unwrap();
+    let (_, path, world) = f.app.session.doc.placements().into_iter().find(|(c, _, world)| *c == f.plate && world[3][1] > 50.0).unwrap();
+    activate(&mut f.app, json!({"component": f.plate, "path": path}));
+    settle(&mut f.app);
+    let c = context(&f.app);
+    assert_eq!(c.bodies.len(), 1, "both placements of the plate are the part itself");
+    // The post's corner at (-100, 0) seen from the second placement, not the first
+    let (x, y) = (-100.0 - world[3][0], -world[3][1]);
+    assert!((c.bounds.min.x - x).abs() < 1e-6 && (c.bounds.min.y - y).abs() < 1e-6, "{:?} from {:?}", c.bounds, world[3]);
+    assert!(world[3][1] > 50.0 && (y - -100.0).abs() < 1e-6, "the frame is the second placement's: {:?}", world[3]);
+}
+
+#[test]
+fn turned_off_or_unsaved_activating_a_linked_component_does_what_it_did() {
+    let mut f = assembly("off");
+    f.app.preferences.edit_linked_in_place = false;
+    activate(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert_eq!(f.app.session.active_component, f.plate);
+    assert_eq!(f.app.docs.count(), 1);
+    assert!(f.app.edit_in_place.active.is_none());
+    // An assembly never saved has no folder to find its links from
+    let mut fresh = SolveApp::new(Session::default(), Default::default());
+    let linked = fresh.run("component.insert_design", json!({"path": f.plate_file})).unwrap()["component"].as_u64().unwrap();
+    activate(&mut fresh, json!({"component": linked}));
+    settle(&mut fresh);
+    assert!(fresh.edit_in_place.active.is_none() && fresh.edit_in_place.pending.is_none());
+    assert!(fresh.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", fresh.status);
+}

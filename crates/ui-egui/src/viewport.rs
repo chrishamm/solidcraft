@@ -386,7 +386,8 @@ pub fn view_bounds(app: &SolveApp) -> solidcraft_engine::geom::Aabb3 {
     if crate::open_meshing::framing(app) {
         return solidcraft_engine::view::unmeshed_bounds(&app.session);
     }
-    solidcraft_engine::view::bounds(&app.session)
+    let own = solidcraft_engine::view::bounds(&app.session);
+    crate::edit_in_place::bounds(app).map_or(own, |context| if own.is_empty() { context } else { own.union(&context) })
 }
 
 /// The middle of the shown bodies the view shows part of: what a cursor orbit begun over empty
@@ -460,6 +461,7 @@ fn scene_key(app: &SolveApp) -> u64 {
     // Two themes may share a light/dark base while drawing different geometry colours.
     crate::theme_files::color_key(&Tokens::get()).hash(&mut h);
     app.session.active_sketch.hash(&mut h);
+    crate::edit_in_place::scene_key(app).hash(&mut h);
     // A reset palette arena (another design) invalidates every cached block's indices.
     app.viewport.palette.lock().map_or(0, |a| a.generation()).hash(&mut h);
     // Continuity seams are model-scene lines but are not part of the document or world state.
@@ -1434,6 +1436,7 @@ pub(crate) fn build_scene(app: &SolveApp) -> GpuScene {
             }
         }
     }
+    crate::edit_in_place::draw_context(app, &mut sc);
 
     sc
 }
@@ -1684,7 +1687,7 @@ pub(crate) fn dashes(pts: &[Vec3], pattern: &[f64]) -> Vec<(Vec3, Vec3)> {
 }
 
 /// Colour as straight (unpremultiplied) sRGBA bytes for the GPU.
-fn c4(c: Color32) -> [u8; 4] {
+pub(crate) fn c4(c: Color32) -> [u8; 4] {
     c.to_srgba_unmultiplied()
 }
 

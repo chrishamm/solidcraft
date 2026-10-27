@@ -32,6 +32,7 @@ pub struct DocSlot {
     agent_chat: crate::agent_chat::AgentChat,
     /// Its linked design files as the design last read them (`Documents::link_stamps`).
     link_stamps: Vec<(u64, crate::linked_source::Stamp)>,
+    edit_in_place: Option<crate::edit_in_place::PartContext>,
 }
 
 /// The per-design part of the UI state the session doesn't keep (what is hidden, shown or locked
@@ -61,6 +62,7 @@ impl DocSlot {
             occurrence_move: None,
             agent_chat: Default::default(),
             link_stamps: Vec::new(),
+            edit_in_place: None,
         }
     }
 }
@@ -160,6 +162,7 @@ fn swap_in(app: &mut SolveApp, mut slot: DocSlot) -> DocSlot {
         occurrence_move: std::mem::replace(&mut app.tree.occurrence_move, slot.occurrence_move),
         agent_chat: slot.agent_chat,
         link_stamps: std::mem::replace(&mut app.docs.link_stamps, slot.link_stamps),
+        edit_in_place: std::mem::replace(&mut app.edit_in_place.active, slot.edit_in_place),
     };
     // Only the displayed design owns the process-wide crash replay journal.
     app.session.crash_journal = out.session.crash_journal;
@@ -227,6 +230,25 @@ pub fn switch(app: &mut SolveApp, i: usize) {
     if app.docs.batch.is_none() && app.docs.quitting.is_none() && app.docs.closing.is_none() {
         crate::linked_source::update_changed(app);
     }
+    crate::edit_in_place::attach(app);
+}
+
+/// The open design saved at `path`, shown or in the background.
+pub(crate) fn session_at<'a>(app: &'a SolveApp, path: &str) -> Option<&'a Session> {
+    let saved_at = |s: &Session| s.path.as_deref().is_some_and(|p| same_path(p, path));
+    if saved_at(&app.session) {
+        return Some(&app.session);
+    }
+    app.docs.slots.iter().flatten().map(|s| &s.session).find(|s| saved_at(s))
+}
+
+/// [`session_at`], to change it.
+pub(crate) fn session_at_mut<'a>(app: &'a mut SolveApp, path: &str) -> Option<&'a mut Session> {
+    let saved_at = |s: &Session| s.path.as_deref().is_some_and(|p| same_path(p, path));
+    if saved_at(&app.session) {
+        return Some(&mut app.session);
+    }
+    app.docs.slots.iter_mut().flatten().map(|s| &mut s.session).find(|s| saved_at(s))
 }
 
 /// Select an already-open saved design without reloading or framing it. Identity is derived
@@ -401,6 +423,7 @@ pub fn close(app: &mut SolveApp, i: usize, force: bool) {
         app.fit_view();
         put_view(app, DocView::default());
         app.docs = Documents::default();
+        app.edit_in_place = Default::default();
         app.home.open = true;
         return;
     }

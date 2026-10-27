@@ -61,6 +61,7 @@ pub mod drag_extrude;
 pub mod drag_snap;
 pub mod easyprint_ui;
 pub mod edit_clipboard;
+pub mod edit_in_place;
 mod feature_edit;
 #[cfg(test)]
 mod font_literals_tests;
@@ -495,6 +496,8 @@ pub struct SolveApp {
     /// OK pressed on a feature that takes a while: its evaluation runs off the window thread.
     pub applying: Option<dialogs::Applying>,
     pub(crate) editing_state: Option<dialogs::EditingState>,
+    /// A linked component's design edited in place, with its assembly around it.
+    pub edit_in_place: edit_in_place::EditInPlace,
     pub(crate) pending_feature_edit: Option<feature_edit::PendingFeatureEdit>,
     /// A command recomputing the history (the marker moved, undo) computing off the window
     /// thread, and those asked for meanwhile ([`deferred`]).
@@ -691,6 +694,7 @@ impl SolveApp {
             preview: preview::PreviewState::default(),
             applying: None,
             editing_state: None,
+            edit_in_place: Default::default(),
             pending_feature_edit: None,
             deferred: None,
             deferred_queue: Vec::new(),
@@ -1307,6 +1311,13 @@ impl SolveApp {
                 }
             });
             return;
+        }
+        if id == "component.update_links" && self.edit_in_place.active.is_some() {
+            // In a part edited in place it also refreshes the assembly around it.
+            edit_in_place::refresh(self);
+            if self.session.doc.links.is_empty() {
+                return;
+            }
         }
         if id == "component.update_links" && !self.session.doc.links.is_empty() {
             // Reading the linked designs again takes a while in a large assembly: off the window
@@ -2010,7 +2021,8 @@ impl SolveApp {
         render_workspace::tick(self, ctx);
         file_load::tick(self, ctx);
         save_job::tick(self, false);
-        if self.saving.is_some() {
+        edit_in_place::tick(self);
+        if self.saving.is_some() || self.edit_in_place.refreshing() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
         open_meshing::tick(self, ctx);

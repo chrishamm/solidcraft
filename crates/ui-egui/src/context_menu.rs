@@ -1379,7 +1379,7 @@ pub fn run_item(app: &mut SolveApp, item: &Item, at: Pos2) {
         }
         "ui.activate" => {
             if id_of(&p, "component").is_some() {
-                let _ = app.run("component.activate", p);
+                crate::edit_in_place::activate(app, p);
             }
         }
         "ui.openLinkedDesign" => {
