@@ -16,16 +16,20 @@ fn volume(app: &SolveApp) -> f64 {
     volume_of(&app.session, "")
 }
 
-/// Ticks the window's background work until it is done: opens, saves, Update Links and the
-/// assembly refresh of an edit in place.
+/// Ticks the window's background work, at least one frame's worth, until it is done: opens,
+/// saves, Update Links and the assembly refresh of an edit in place.
 fn settle(app: &mut SolveApp) {
     let ctx = egui::Context::default();
     let began = std::time::Instant::now();
-    while !app.file_load.idle() || app.saving.is_some() || app.edit_in_place.finish_after_save || app.edit_in_place.refreshing() {
-        assert!(began.elapsed() < std::time::Duration::from_secs(120), "the background work went on");
+    loop {
         crate::file_load::tick(app, &ctx);
         crate::save_job::tick(app, false);
         tick(app);
+        let busy = !app.file_load.idle() || app.saving.is_some() || app.edit_in_place.finish_after_save.is_some() || app.edit_in_place.refreshing();
+        if !busy {
+            return;
+        }
+        assert!(began.elapsed() < std::time::Duration::from_secs(120), "the background work went on");
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
@@ -89,7 +93,7 @@ fn a_linked_component_is_edited_in_place_and_finish_editing_updates_the_assembly
     assert!(showing(&f.app, &f.plate_file));
     let c = context(&f.app);
     assert!(c.opened);
-    assert_eq!(c.bodies.len(), 1, "only the post: the part's own bodies are not context");
+    assert_eq!(c.bodies, 1, "only the post: the part's own bodies are not context");
     assert!((c.bounds.min.x - -150.0).abs() < 1e-6 && (c.bounds.max.x - -140.0).abs() < 1e-6, "{:?}", c.bounds);
     assert!((volume(&f.app) - 6000.0).abs() < 1e-6, "the part's own design, not the assembly");
     // Changed and finished: saved, back in the assembly, the part's tab closed, the link read again
@@ -130,16 +134,62 @@ fn update_links_in_the_part_refreshes_the_assembly_around_it() {
     // Still in the part, the assembly's tab updated and the picture around the part with it
     assert!(showing(&f.app, &f.plate_file));
     let after = context(&f.app);
-    assert!(!Arc::ptr_eq(&before.bodies, &after.bodies));
+    assert!(!Arc::ptr_eq(&before.triangles, &after.triangles));
     assert!((after.bounds.max.z - 20.0).abs() < 1e-6, "the post's new box shows: {:?}", after.bounds);
     let assembly = crate::documents::session_at(&f.app, &after.assembly).unwrap();
     assert!((volume_of(assembly, "") - 7250.0).abs() < 1e-6, "{}", volume_of(assembly, ""));
     assert!(assembly.is_dirty(), "the assembly keeps its own copy of the linked bodies");
     assert_eq!(f.app.status.as_ref().map(|s| s.0.as_str()), Some("Update Links done"));
-    // Finishing afterwards changes nothing more in the assembly
+    // Finishing afterwards reads nothing again: the refresh read every link
     finish(&mut f.app);
+    assert!(f.app.file_load.idle(), "the assembly read its links in the refresh already");
     settle(&mut f.app);
     assert!((volume(&f.app) - 7250.0).abs() < 1e-6, "{}", volume(&f.app));
+}
+
+#[test]
+fn looking_at_the_assembly_while_it_refreshes_keeps_the_refresh() {
+    let mut f = assembly("looked");
+    f.app.preferences.update_changed_links = false;
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    crate::documents::switch(&mut f.app, 0);
+    crate::documents::switch(&mut f.app, 1);
+    settle(&mut f.app);
+    let assembly = crate::documents::session_at(&f.app, &context(&f.app).assembly).unwrap();
+    assert!((volume_of(assembly, "") - 7250.0).abs() < 1e-6, "showing the assembly changes nothing in it: {}", volume_of(assembly, ""));
+}
+
+#[test]
+fn an_edit_whose_part_does_not_open_is_forgotten() {
+    let mut f = assembly("unopened");
+    std::fs::remove_file(&f.plate_file).unwrap();
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_none() && f.app.edit_in_place.pending.is_none());
+    assert_eq!(f.app.docs.count(), 1);
+    // The part opened by hand later is a plain tab, not an old edit
+    save_box(&f.plate_file, [10.0, 20.0, 30.0], false);
+    let mut opened = Session::default();
+    opened.execute("doc.open", &json!({"path": f.plate_file})).unwrap();
+    crate::documents::open_tab(&mut f.app, opened).unwrap();
+    assert!(showing(&f.app, &f.plate_file));
+    assert!(f.app.edit_in_place.active.is_none());
+}
+
+#[test]
+fn finishing_a_part_saved_to_another_file_keeps_the_edit_and_says_so() {
+    let mut f = assembly("elsewhere");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.run("file.save", json!({"path": f.folder.join("copy.solidcraft")})).unwrap();
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_some(), "the assembly still links the part, not the copy");
+    assert!(f.app.session.path.as_deref().is_some_and(|p| p.ends_with("copy.solidcraft")));
+    assert!(f.app.status.as_ref().is_some_and(|(s, _, error)| *error && s.contains("plate")), "{:?}", f.app.status);
 }
 
 #[test]
@@ -229,7 +279,7 @@ fn a_second_placement_is_the_frame_and_no_copy_of_the_part_is_context() {
     double_click_component(&mut f.app, json!({"component": f.plate, "path": path}));
     settle(&mut f.app);
     let c = context(&f.app);
-    assert_eq!(c.bodies.len(), 1, "both placements of the plate are the part itself");
+    assert_eq!(c.bodies, 1, "both placements of the plate are the part itself");
     // The post's corner at (-100, 0) seen from the second placement, not the first
     let (x, y) = (-100.0 - world[3][0], -world[3][1]);
     assert!((c.bounds.min.x - x).abs() < 1e-6 && (c.bounds.min.y - y).abs() < 1e-6, "{:?} from {:?}", c.bounds, world[3]);
@@ -305,7 +355,7 @@ fn activate_only_activates_and_edit_in_place_opens_the_placement_right_clicked()
 }
 
 #[test]
-fn turned_off_or_unsaved_activating_a_linked_component_does_what_it_did() {
+fn turned_off_or_unsaved_double_clicking_a_linked_component_does_what_it_did() {
     let mut f = assembly("off");
     f.app.preferences.double_click_components = false;
     double_click_component(&mut f.app, json!({"component": f.plate}));

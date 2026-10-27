@@ -1,7 +1,7 @@
-//! Edit in place: activating a linked component opens the design it comes from, with the rest of
-//! the assembly drawn faded around it where the component sits, so its own timeline, browser and
-//! commands are at hand. Finish Editing saves the part, goes back to the assembly and reads the
-//! link again.
+//! Edit in place: double-clicking a linked component opens the design it comes from, with the
+//! rest of the assembly drawn faded around it where the component sits, so its own timeline,
+//! browser and commands are at hand. Finish Editing saves the part and goes back to the assembly,
+//! which reads the link again.
 //!
 //! The part is an ordinary tab: saving, autosave, recovery, closing and quitting treat it as any
 //! other design. The assembly around it is a picture of the assembly's tab, taken when the edit
@@ -12,8 +12,8 @@ use std::sync::mpsc::Receiver;
 
 use serde_json::{Value, json};
 use solidcraft_engine::Session;
-use solidcraft_engine::doc::{Mat, apply_point, apply_vector, mat_inverse, mat_mul};
-use solidcraft_engine::geom::{Aabb3, Mesh};
+use solidcraft_engine::doc::{apply_point, apply_vector, mat_inverse, mat_mul};
+use solidcraft_engine::geom::Aabb3;
 
 use crate::SolveApp;
 use crate::gpu::GpuScene;
@@ -30,8 +30,10 @@ pub struct PartContext {
     /// The linked component edited, and the placement the assembly is drawn around.
     pub component: u64,
     pub placement: Vec<u64>,
-    /// The assembly's other bodies in the part's frame: their meshes and placements.
-    pub bodies: Arc<Vec<(Arc<Mesh>, Mat)>>,
+    /// How many of the assembly's bodies are drawn around the part.
+    pub bodies: usize,
+    /// Their triangles in the part's frame, three points and normals each, worked out once.
+    pub triangles: Arc<Vec<([f32; 3], [f32; 3])>>,
     /// Their extent in the part's frame, so fitting the view frames the assembly too.
     pub bounds: Aabb3,
     /// The part's tab was opened for this edit, so Finish Editing closes it again.
@@ -42,11 +44,10 @@ pub struct PartContext {
 
 /// Update Links run on the assembly while its part is edited in place.
 struct Refresh {
-    /// The assembly's file, and its document and revision when the run started: a result for an
-    /// assembly changed since is dropped.
+    /// The assembly's file, and its document when the run started: a result for an assembly
+    /// changed since is dropped (showing it changes nothing).
     assembly: String,
     base: Arc<solidcraft_engine::doc::Document>,
-    revision: u64,
     done: Receiver<Result<Session, String>>,
 }
 
@@ -55,8 +56,8 @@ struct Refresh {
 pub struct EditInPlace {
     pub active: Option<PartContext>,
     pending: Option<PartContext>,
-    /// Finish Editing is waiting for the part's save.
-    finish_after_save: bool,
+    /// Finish Editing is waiting for the save of the part at this file.
+    finish_after_save: Option<String>,
     refresh: Option<Refresh>,
 }
 
@@ -115,26 +116,26 @@ fn busy(app: &SolveApp) -> bool {
 }
 
 /// The bodies of `session` around its linked component `component`, in that component's frame
-/// at `placement`, with their extent. `None` when the placement is gone.
-fn snapshot(session: &Session, component: u64, placement: &[u64]) -> Option<(Vec<(Arc<Mesh>, Mat)>, Aabb3)> {
+/// at `placement`: how many, their triangles and their extent. `None` when the placement is gone.
+fn snapshot(session: &Session, component: u64, placement: &[u64]) -> Option<(usize, Vec<([f32; 3], [f32; 3])>, Aabb3)> {
     let frame = session.occurrence_placement(placement).ok().and_then(|p| mat_inverse(&p.world))?;
     let world = session.world_state();
-    let bodies: Vec<_> = world
-        .bodies
-        .iter()
-        .filter(|b| b.component != component && session.body_visible(&b.name))
-        .map(|b| {
-            let (mesh, placed) = b.mesh_in_place();
-            (mesh, mat_mul(&frame, &placed))
-        })
-        .collect();
-    let mut bounds = Aabb3::default();
-    for (mesh, m) in &bodies {
-        for p in &mesh.positions {
-            bounds.add(apply_point(m, *p));
+    let (mut bodies, mut triangles, mut bounds) = (0, Vec::new(), Aabb3::default());
+    for b in world.bodies.iter().filter(|b| b.component != component && session.body_visible(&b.name)) {
+        let (mesh, placed) = b.mesh_in_place();
+        let m = mat_mul(&frame, &placed);
+        bodies += 1;
+        for t in &mesh.triangles {
+            // A triangle with an index out of range is left out whole, so the rest stay in step.
+            let corners: Option<Vec<_>> = t.iter().map(|k| Some((*mesh.positions.get(*k as usize)?, *mesh.normals.get(*k as usize)?))).collect();
+            for (p, n) in corners.into_iter().flatten() {
+                let p = apply_point(&m, p);
+                bounds.add(p);
+                triangles.push((p.to_f32(), apply_vector(&m, n).to_f32()));
+            }
         }
     }
-    Some((bodies, bounds))
+    Some((bodies, triangles, bounds))
 }
 
 /// Open the design the linked component `component` comes from, with the assembly around it as
@@ -160,14 +161,15 @@ pub(crate) fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) 
     };
     let Some(part) = link["file"].as_str().map(str::to_string) else { return };
     let placement = path.unwrap_or_else(|| app.session.doc.first_path(component));
-    let Some((bodies, bounds)) = snapshot(&app.session, component, &placement) else { return };
+    let Some((bodies, triangles, bounds)) = snapshot(&app.session, component, &placement) else { return };
     app.edit_in_place.pending = Some(PartContext {
         assembly,
         assembly_name: app.session.doc.name.clone(),
         part,
         component,
         placement,
-        bodies: Arc::new(bodies),
+        bodies,
+        triangles: Arc::new(triangles),
         bounds,
         opened: false,
         tabs: app.docs.count(),
@@ -175,7 +177,8 @@ pub(crate) fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) 
     crate::network_prompt::open_linked(app, &link);
 }
 
-/// The design shown has become the part an edit waits for: the edit starts there.
+/// The design shown has become the part an edit waits for: the edit starts there. An edit whose
+/// part did not open (the open failed or was cancelled) is dropped by [`tick`].
 pub(crate) fn attach(app: &mut SolveApp) {
     let shown = app.session.path.as_deref();
     let Some(mut context) = app.edit_in_place.pending.take_if(|c| shown.is_some_and(|p| crate::documents::same_path(p, &c.part))) else {
@@ -201,7 +204,7 @@ pub(crate) fn refresh(app: &mut SolveApp) {
     let mut scratch = session.scratch();
     // Link paths are kept relative to the design's own file.
     scratch.path.clone_from(&session.path);
-    let (base, revision) = (session.doc.clone(), session.revision);
+    let base = session.doc.clone();
     let (tx, done) = std::sync::mpsc::channel();
     let run = move || {
         let r = scratch.execute("component.update_links", &json!({})).map(|_| scratch).map_err(|e| e.to_string());
@@ -209,12 +212,12 @@ pub(crate) fn refresh(app: &mut SolveApp) {
     };
     #[cfg(not(target_arch = "wasm32"))]
     if std::thread::Builder::new().name("edit-in-place-links".into()).spawn(run).is_err() {
-        app.set_status("could not start Update Links", true);
+        app.set_status(crate::i18n::tr("ui.edit_in_place_refresh_stopped").to_string(), true);
         return;
     }
     #[cfg(target_arch = "wasm32")]
     run();
-    app.edit_in_place.refresh = Some(Refresh { assembly, base, revision, done });
+    app.edit_in_place.refresh = Some(Refresh { assembly, base, done });
     let name = app.edit_in_place.active.as_ref().map(|c| c.assembly_name.clone()).unwrap_or_default();
     app.set_status(crate::i18n::format("ui.edit_in_place_refreshing", &[("name", &name)]), false);
 }
@@ -226,7 +229,7 @@ fn take_refresh(app: &mut SolveApp) {
     let result = match r.done.try_recv() {
         Ok(result) => result,
         Err(std::sync::mpsc::TryRecvError::Empty) => return,
-        Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("Update Links stopped".into()),
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(crate::i18n::tr("ui.edit_in_place_refresh_stopped").to_string()),
     };
     let Some(r) = app.edit_in_place.refresh.take() else { return };
     let computed = match result {
@@ -237,17 +240,19 @@ fn take_refresh(app: &mut SolveApp) {
         }
     };
     let Some(session) = crate::documents::session_at_mut(app, &r.assembly) else { return };
-    if !Arc::ptr_eq(&session.doc, &r.base) || session.revision != r.revision {
+    if !Arc::ptr_eq(&session.doc, &r.base) {
         app.set_status(crate::i18n::tr("ui.edit_in_place_refresh_dropped").to_string(), true);
         return;
     }
     session.accept_computed(computed);
+    // Every link was read: coming back to the assembly need not read them again.
+    crate::documents::read_again_at(app, &r.assembly);
     let Some(context) = app.edit_in_place.active.as_ref().filter(|c| crate::documents::same_path(&c.assembly, &r.assembly)) else { return };
     let (component, placement) = (context.component, context.placement.clone());
-    let Some(snap) = crate::documents::session_at(app, &r.assembly).and_then(|s| snapshot(s, component, &placement)) else { return };
+    let snap = crate::documents::session_at(app, &r.assembly).and_then(|s| snapshot(s, component, &placement));
+    let Some((bodies, triangles, bounds)) = snap else { return };
     if let Some(context) = app.edit_in_place.active.as_mut() {
-        context.bodies = Arc::new(snap.0);
-        context.bounds = snap.1;
+        (context.bodies, context.triangles, context.bounds) = (bodies, Arc::new(triangles), bounds);
     }
     let language = crate::i18n::Locale::for_language(&app.preferences.language);
     app.set_status(language.format("ui.command_done", &[("command", language.label(crate::command_label("component.update_links")))]), false);
@@ -256,11 +261,18 @@ fn take_refresh(app: &mut SolveApp) {
 /// Finish Editing: save the part (and wait for it), go back to the assembly, close the part's
 /// tab when the edit opened it and read the assembly's links again.
 pub(crate) fn finish(app: &mut SolveApp) {
-    if app.edit_in_place.active.is_none() || busy(app) {
+    let Some(part) = app.edit_in_place.active.as_ref().map(|c| c.part.clone()) else { return };
+    if busy(app) {
+        return;
+    }
+    // Saved to another file (Save As, a copy of a read-only design): the assembly still links this one.
+    if !app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &part)) {
+        let name = std::path::Path::new(&part).file_stem().map_or_else(|| part.clone(), |n| n.to_string_lossy().into_owned());
+        app.set_status(crate::i18n::format("ui.edit_in_place_saved_elsewhere", &[("name", &name)]), true);
         return;
     }
     if app.session.is_dirty() {
-        app.edit_in_place.finish_after_save = true;
+        app.edit_in_place.finish_after_save = Some(part);
         crate::toolbar::save(app);
         return;
     }
@@ -283,13 +295,18 @@ pub(crate) fn finish(app: &mut SolveApp) {
     }
 }
 
-/// Each frame: a refresh that finished is taken up, and Finish Editing goes on once the part's
-/// save is done (a save that failed or was cancelled leaves the edit as it was).
+/// Each frame: a refresh that finished is taken up; an edit waiting for a part that nothing will
+/// open any more is dropped; and Finish Editing goes on once the part's save is done, in the
+/// part's own tab (a save that failed, was cancelled or went elsewhere leaves the edit as it was).
 pub(crate) fn tick(app: &mut SolveApp) {
     take_refresh(app);
-    if app.edit_in_place.finish_after_save && app.saving.is_none() && app.file_picker.is_none() {
-        app.edit_in_place.finish_after_save = false;
-        if !app.session.is_dirty() {
+    if app.edit_in_place.pending.is_some() && !app.file_load.busy() && app.network_prompt.is_none() && app.lock_prompts.is_empty() {
+        app.edit_in_place.pending = None;
+    }
+    let waiting = app.saving.is_some() || app.file_picker.is_some() || app.disk_prompt;
+    if !waiting && let Some(part) = app.edit_in_place.finish_after_save.take() {
+        let shown = app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &part));
+        if shown && !app.session.is_dirty() {
             finish(app);
         }
     }
@@ -297,7 +314,7 @@ pub(crate) fn tick(app: &mut SolveApp) {
 
 /// What the scene key needs of the edit: the assembly picture shown (0: none).
 pub(crate) fn scene_key(app: &SolveApp) -> usize {
-    app.edit_in_place.active.as_ref().map_or(0, |c| Arc::as_ptr(&c.bodies) as usize)
+    app.edit_in_place.active.as_ref().map_or(0, |c| Arc::as_ptr(&c.triangles) as usize)
 }
 
 /// The extent of the assembly around the part, when one is shown.
@@ -309,15 +326,8 @@ pub(crate) fn bounds(app: &SolveApp) -> Option<Aabb3> {
 pub(crate) fn draw_context(app: &SolveApp, sc: &mut GpuScene) {
     let Some(context) = &app.edit_in_place.active else { return };
     let col = sc.color(crate::viewport::c4(Tokens::get().body.gamma_multiply(0.35)));
-    for (mesh, m) in context.bodies.iter() {
-        for t in &mesh.triangles {
-            for k in t {
-                let i = *k as usize;
-                if let (Some(p), Some(n)) = (mesh.positions.get(i), mesh.normals.get(i)) {
-                    sc.ghost_tri(apply_point(m, *p).to_f32(), apply_vector(m, *n).to_f32(), col);
-                }
-            }
-        }
+    for (p, n) in context.triangles.iter() {
+        sc.ghost_tri(*p, *n, col);
     }
 }
 

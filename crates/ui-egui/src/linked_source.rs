@@ -126,10 +126,16 @@ fn stamp(file: &str) -> Stamp {
 /// file that is missing, or on a network location not allowed, which is never looked at
 /// (`component.links` reports it unfound). The web build keeps no times, so it looks at nothing.
 fn disk_stamps(app: &mut SolveApp) -> Vec<(u64, Stamp)> {
-    if cfg!(target_arch = "wasm32") || !app.preferences.update_changed_links || app.session.doc.links.is_empty() {
+    let on = app.preferences.update_changed_links;
+    stamps_of(&mut app.session, on)
+}
+
+/// [`disk_stamps`] for any open design (`on`: the preference `update_changed_links`).
+pub(crate) fn stamps_of(session: &mut solidcraft_engine::Session, on: bool) -> Vec<(u64, Stamp)> {
+    if cfg!(target_arch = "wasm32") || !on || session.doc.links.is_empty() {
         return Vec::new();
     }
-    let Ok(links) = app.session.execute("component.links", &json!({})) else { return Vec::new() };
+    let Ok(links) = session.execute("component.links", &json!({})) else { return Vec::new() };
     links["links"]
         .as_array()
         .into_iter()
@@ -142,7 +148,7 @@ fn disk_stamps(app: &mut SolveApp) -> Vec<(u64, Stamp)> {
 }
 
 /// Set `component`'s entry in `stamps` (each link's file as the design last read it).
-fn record(stamps: &mut Vec<(u64, Stamp)>, component: u64, stamp: Stamp) {
+pub(crate) fn record(stamps: &mut Vec<(u64, Stamp)>, component: u64, stamp: Stamp) {
     match stamps.iter_mut().find(|(c, _)| *c == component) {
         Some(entry) => entry.1 = stamp,
         None => stamps.push((component, stamp)),

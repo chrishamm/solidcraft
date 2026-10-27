@@ -257,6 +257,8 @@ pub fn begin_request(app: &mut SolveApp, request: Request) -> Result<(), String>
             }
             Kind::Open => {
                 app.open_path(&request.path);
+                // Opened in place of the blank tab it made, with no switch to it.
+                crate::edit_in_place::attach(app);
                 Ok(Value::Null)
             }
             Kind::Recover { .. } => {

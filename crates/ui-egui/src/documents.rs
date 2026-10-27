@@ -242,6 +242,22 @@ pub(crate) fn session_at<'a>(app: &'a SolveApp, path: &str) -> Option<&'a Sessio
     app.docs.slots.iter().flatten().map(|s| &s.session).find(|s| saved_at(s))
 }
 
+/// The open design saved at `path` read every link again without an error: its record of them
+/// (`Documents::link_stamps`, or its tab's) is now its files as they are.
+pub(crate) fn read_again_at(app: &mut SolveApp, path: &str) {
+    if app.session.path.as_deref().is_some_and(|p| same_path(p, path)) {
+        crate::linked_source::read_again(app, None);
+        return;
+    }
+    let on = app.preferences.update_changed_links;
+    let saved_at = |s: &DocSlot| s.session.path.as_deref().is_some_and(|p| same_path(p, path));
+    if let Some(slot) = app.docs.slots.iter_mut().flatten().find(|s| saved_at(s)) {
+        for (c, s) in crate::linked_source::stamps_of(&mut slot.session, on) {
+            crate::linked_source::record(&mut slot.link_stamps, c, s);
+        }
+    }
+}
+
 /// [`session_at`], to change it.
 pub(crate) fn session_at_mut<'a>(app: &'a mut SolveApp, path: &str) -> Option<&'a mut Session> {
     let saved_at = |s: &Session| s.path.as_deref().is_some_and(|p| same_path(p, path));
