@@ -122,10 +122,11 @@ fn stamp(file: &str) -> Stamp {
     }
 }
 
-/// The active design's linked components with their files as they are on disk now. A file on a
-/// network location not allowed is never looked at (`component.links` reports it unfound).
-pub(crate) fn link_stamps(app: &mut SolveApp) -> Vec<(u64, Stamp)> {
-    if !app.preferences.update_changed_links || app.session.doc.links.is_empty() {
+/// The shown design's linked components with their files as they are on disk now. A file on a
+/// network location not allowed is never looked at (`component.links` reports it unfound), and
+/// the web build keeps no times, so it looks at nothing.
+fn disk_stamps(app: &mut SolveApp) -> Vec<(u64, Stamp)> {
+    if cfg!(target_arch = "wasm32") || !app.preferences.update_changed_links || app.session.doc.links.is_empty() {
         return Vec::new();
     }
     let Ok(links) = app.session.execute("component.links", &json!({})) else { return Vec::new() };
@@ -139,24 +140,57 @@ pub(crate) fn link_stamps(app: &mut SolveApp) -> Vec<(u64, Stamp)> {
         .collect()
 }
 
-/// Take up, off the window thread as Update Links does, the linked designs whose files changed
-/// since `before` ([`link_stamps`] as the design went to the background).
-pub(crate) fn update_changed(app: &mut SolveApp, before: &[(u64, Stamp)]) {
-    if before.is_empty() {
+/// Set `component`'s entry in `stamps` (each link's file as the design last read it).
+fn record(stamps: &mut Vec<(u64, Stamp)>, component: u64, stamp: Stamp) {
+    match stamps.iter_mut().find(|(c, _)| *c == component) {
+        Some(entry) => entry.1 = stamp,
+        None => stamps.push((component, stamp)),
+    }
+}
+
+/// The links of the shown design it holds no record of yet (it was just opened, a link was just
+/// made) are taken as their files are now.
+pub(crate) fn note_unread(app: &mut SolveApp) {
+    if app.session.doc.links.keys().all(|c| app.docs.link_stamps.iter().any(|(k, _)| k == c)) {
         return;
     }
-    let changed: Vec<u64> =
-        link_stamps(app).into_iter().filter(|(c, now)| now.is_some() && before.iter().any(|(b, was)| b == c && was != now)).map(|(c, _)| c).collect();
-    let mut request = crate::file_load::Request::new("", crate::file_load::Kind::UpdateLinks);
-    match changed[..] {
-        [] => return,
-        // Several: one run over every link reads each design once.
-        [component] => {
-            request.options.insert("component".into(), json!(component));
+    for (c, s) in disk_stamps(app) {
+        if !app.docs.link_stamps.iter().any(|(k, _)| *k == c) {
+            app.docs.link_stamps.push((c, s));
         }
-        _ => {}
     }
-    let _ = crate::file_load::begin_request(app, request);
+}
+
+/// The shown design came back to its tab: read again, off the window thread as Update Links
+/// does, the linked designs whose files changed since it last read them. Each is a run of its
+/// own, so one that cannot be read holds up no other; one that fails is tried again next time.
+pub(crate) fn update_changed(app: &mut SolveApp) {
+    let now = disk_stamps(app);
+    let changed: Vec<u64> =
+        now.iter().filter(|(c, s)| s.is_some() && app.docs.link_stamps.iter().any(|(k, was)| k == c && was != s)).map(|(c, _)| *c).collect();
+    for (c, s) in now {
+        if !app.docs.link_stamps.iter().any(|(k, _)| *k == c) {
+            app.docs.link_stamps.push((c, s));
+        }
+    }
+    if changed.len() > crate::documents::MAX_OPEN {
+        // More than can wait at once: one run over every link.
+        let _ = crate::file_load::begin_request(app, crate::file_load::Request::new("", crate::file_load::Kind::UpdateLinks));
+        return;
+    }
+    for component in changed {
+        let mut request = crate::file_load::Request::new("", crate::file_load::Kind::UpdateLinks);
+        request.options.insert("component".into(), json!(component));
+        let _ = crate::file_load::begin_request(app, request);
+    }
+}
+
+/// Update Links read the shown design's link to `component` (`None`: all of them) without an
+/// error: those links are now as their files are.
+pub(crate) fn read_again(app: &mut SolveApp, component: Option<u64>) {
+    for (c, s) in disk_stamps(app).into_iter().filter(|(c, _)| component.is_none_or(|o| o == *c)) {
+        record(&mut app.docs.link_stamps, c, s);
+    }
 }
 
 /// Components Extract to File found to build the same bodies as the one it linked.
@@ -432,6 +466,98 @@ mod tests {
         saved_elsewhere(&mut app);
         assert!(app.file_load.idle());
         assert!((volume(&app) - 8000.0).abs() < 1e-6, "{}", volume(&app));
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    /// An assembly saved in `folder` linking a 10x20x30 plate and a 10 mm cube, with a blank
+    /// second tab to step away to; the helpers save a part, settle the background work and
+    /// measure the assembly.
+    fn two_links(name: &str) -> (SolveApp, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let folder = std::env::temp_dir().join(format!("solidcraft-two-links-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let (plate, cube) = (folder.join("plate.solidcraft"), folder.join("cube.solidcraft"));
+        save_part(&plate, [10.0, 20.0, 30.0], false);
+        save_part(&cube, [10.0, 10.0, 10.0], false);
+        let mut app = SolveApp::new(Session::default(), Default::default());
+        app.run("component.insert_design", json!({"path": plate})).unwrap();
+        app.run("component.insert_design", json!({"path": cube, "translate": [100, 0, 0]})).unwrap();
+        app.run("file.save", json!({"path": folder.join("case.solidcraft")})).unwrap();
+        crate::documents::open_tab(&mut app, Session::default()).unwrap();
+        crate::documents::switch(&mut app, 0);
+        (app, folder, plate, cube)
+    }
+
+    /// A box design at `path`; `extra` adds a 5x5x10 box on top (250 mm³).
+    fn save_part(path: &std::path::Path, size: [f64; 3], extra: bool) {
+        let mut s = Session::default();
+        s.execute("solid.box", &json!({"length": size[0], "width": size[1], "height": size[2]})).unwrap();
+        if extra {
+            s.execute("solid.box", &json!({"length": 5, "width": 5, "height": 10, "corner": [0, 0, size[2]], "operation": "join"})).unwrap();
+        }
+        s.execute("file.save", &json!({"path": path, "overwrite": true})).unwrap();
+    }
+
+    fn settle(app: &mut SolveApp) {
+        let ctx = egui::Context::default();
+        let began = std::time::Instant::now();
+        while !app.file_load.idle() {
+            assert!(began.elapsed() < std::time::Duration::from_secs(120), "Update Links went on");
+            crate::file_load::tick(app, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    fn volume(app: &SolveApp) -> f64 {
+        app.session.world_state().bodies.iter().map(|b| solidcraft_engine::kernel::measure(&b.body).unwrap().volume).sum()
+    }
+
+    /// Away to the blank tab and back to the assembly.
+    fn come_back(app: &mut SolveApp) {
+        crate::documents::switch(app, 1);
+        crate::documents::switch(app, 0);
+        settle(app);
+    }
+
+    #[test]
+    fn a_link_that_cannot_be_read_holds_up_no_other_and_is_read_again_next_time() {
+        let (mut app, folder, plate, cube) = two_links("unreadable");
+        assert!((volume(&app) - 7000.0).abs() < 1e-6);
+        std::fs::write(&plate, b"not a design").unwrap();
+        save_part(&cube, [10.0, 10.0, 10.0], true);
+        come_back(&mut app);
+        assert!((volume(&app) - 7250.0).abs() < 1e-6, "the cube is read, the plate keeps its bodies: {}", volume(&app));
+        // Readable again (and changed): the next return takes it up
+        save_part(&plate, [10.0, 20.0, 30.0], true);
+        come_back(&mut app);
+        assert!((volume(&app) - 7500.0).abs() < 1e-6, "{}", volume(&app));
+        // Nothing changed since: nothing is read
+        crate::documents::switch(&mut app, 1);
+        crate::documents::switch(&mut app, 0);
+        assert!(app.file_load.idle());
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_change_made_while_the_assembly_is_shown_is_read_when_it_next_comes_back() {
+        let (mut app, folder, plate, _) = two_links("shown");
+        // Changed elsewhere while the assembly is the tab in front
+        save_part(&plate, [10.0, 20.0, 30.0], true);
+        come_back(&mut app);
+        assert!((volume(&app) - 7250.0).abs() < 1e-6, "{}", volume(&app));
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn closing_tabs_together_reads_nothing_on_the_way() {
+        let (mut app, folder, plate, _) = two_links("batch");
+        crate::documents::switch(&mut app, 1);
+        save_part(&plate, [10.0, 20.0, 30.0], true);
+        // Close All from the blank tab: the assembly is shown on the way, and closed
+        crate::documents::close_many(&mut app, vec![0, 1]);
+        assert!(app.file_load.idle(), "no Update Links for a tab that is closing");
+        assert_eq!(app.docs.count(), 1);
+        assert!(app.status.as_ref().is_none_or(|(_, _, error)| !error), "{:?}", app.status);
         let _ = std::fs::remove_dir_all(folder);
     }
 

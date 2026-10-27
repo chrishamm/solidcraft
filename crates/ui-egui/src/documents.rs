@@ -30,7 +30,7 @@ pub struct DocSlot {
     view: DocView,
     occurrence_move: Option<crate::browser::OccMove>,
     agent_chat: crate::agent_chat::AgentChat,
-    /// Its linked design files as they were on disk when the design went to the background.
+    /// Its linked design files as the design last read them (`Documents::link_stamps`).
     link_stamps: Vec<(u64, crate::linked_source::Stamp)>,
 }
 
@@ -82,6 +82,10 @@ pub struct Documents {
     /// is closed first, so the ones before it keep their places). One with unsaved changes asks
     /// first; Cancel stops the rest (#3055).
     pub batch: Option<Vec<usize>>,
+    /// The shown design's linked design files as it last read them: their modification time and
+    /// size when Update Links last read each without an error, or when the link was first seen.
+    /// Coming back to its tab reads again those that differ (`linked_source::update_changed`).
+    pub(crate) link_stamps: Vec<(u64, crate::linked_source::Stamp)>,
 }
 
 impl Documents {
@@ -154,7 +158,7 @@ fn swap_in(app: &mut SolveApp, mut slot: DocSlot) -> DocSlot {
         view: take_view(app),
         occurrence_move: std::mem::replace(&mut app.tree.occurrence_move, slot.occurrence_move),
         agent_chat: slot.agent_chat,
-        link_stamps: Vec::new(),
+        link_stamps: std::mem::replace(&mut app.docs.link_stamps, slot.link_stamps),
     };
     // Only the displayed design owns the process-wide crash replay journal.
     app.session.crash_journal = out.session.crash_journal;
@@ -209,17 +213,18 @@ pub fn switch(app: &mut SolveApp, i: usize) {
     if i == app.docs.active || i >= app.docs.slots.len() {
         return;
     }
-    let Some(mut incoming) = app.docs.slots.get_mut(i).and_then(Option::take) else { return };
-    let stamps = std::mem::take(&mut incoming.link_stamps);
-    let leaving = crate::linked_source::link_stamps(app);
-    let mut out = swap_in(app, incoming);
-    out.link_stamps = leaving;
+    let Some(incoming) = app.docs.slots.get_mut(i).and_then(Option::take) else { return };
+    crate::linked_source::note_unread(app);
+    let out = swap_in(app, incoming);
     let a = app.docs.active;
     if let Some(s) = app.docs.slots.get_mut(a) {
         *s = Some(out);
     }
     app.docs.active = i;
-    crate::linked_source::update_changed(app, &stamps);
+    // Closing several tabs or quitting goes through them: what they missed waits for their return.
+    if app.docs.batch.is_none() && app.docs.quitting.is_none() {
+        crate::linked_source::update_changed(app);
+    }
 }
 
 /// Select an already-open saved design without reloading or framing it. Identity is derived
@@ -439,18 +444,23 @@ fn batch_step(app: &mut SolveApp) {
     if app.docs.closing.is_some() || app.docs.quitting.is_some() {
         return;
     }
-    let Some(mut left) = app.docs.batch.take() else { return };
-    while let Some(i) = left.pop() {
+    if app.docs.batch.is_none() {
+        return;
+    }
+    // The tabs left stay in `batch` while each closes, so the tabs shown on the way know it.
+    while let Some(i) = app.docs.batch.as_mut().and_then(Vec::pop) {
         if i >= app.docs.count() {
             continue;
         }
         if dirty(app, i) {
             app.docs.closing = Some(i);
-            app.docs.batch = Some(left);
             return;
         }
         close(app, i, true);
     }
+    app.docs.batch = None;
+    // The tab left in front reads now what it skipped on the way.
+    crate::linked_source::update_changed(app);
 }
 
 /// Quit (the title bar's ×, File ▸ Quit, the window being closed): asks "save changes?" for each

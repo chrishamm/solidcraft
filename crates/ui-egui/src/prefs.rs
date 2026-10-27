@@ -614,8 +614,8 @@ preference_settings! {
     /// Up/Down and the wheel over a focused value field step its plain number (`value_step`,
     /// #2320). Off by default: the keys move the text cursor and the wheel scrolls, as before.
     step_values: bool = false, PAGE_DESIGN => check_id("ui.step_values");
-    /// A design coming back to its tab reads again the linked designs whose files changed while
-    /// it was in the background. Off: they wait for Update Links, as before.
+    /// A design coming back to its tab reads again the linked designs whose files changed since
+    /// it last read them. Off: they wait for Update Links, as before.
     update_changed_links: bool = true, PAGE_DESIGN => check_id("settings.update_changed_links");
     /// Reopen the saved designs that were open when the app was last closed (#5542).
     reopen_designs: bool = true, PAGE_GENERAL;

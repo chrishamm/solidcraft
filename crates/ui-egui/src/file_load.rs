@@ -890,6 +890,7 @@ pub fn tick(app: &mut SolveApp, ctx: &egui::Context) {
                 let (id, _) = request.command();
                 app.session.accept_computed(made.session);
                 app.big_operation = true;
+                crate::linked_source::read_again(app, request.options.get("component").and_then(Value::as_u64));
                 let r = Ok(made.result);
                 app.finish_command(id, &r);
                 let language = crate::i18n::Locale::for_language(&app.preferences.language);
