@@ -14,6 +14,7 @@
     "ui.edit_in_place_save_first": "Save the assembly first: its linked designs are found from its file",
     "ui.edit_in_place_save_waits": "Update Links is running in {name}; save it once it is done",
     "ui.edit_in_place_saved_elsewhere": "The part was saved to another file; the assembly still links {name}",
+    "ui.finish_edit": "Finish Edit",
     "cmd.component_finish_edit": "Finish Editing"
   },
   "ar": {
@@ -31,6 +32,7 @@
     "ui.edit_in_place_save_first": "احفظ التجميع أولاً: يُعثر على تصاميمه المرتبطة انطلاقًا من ملفه",
     "ui.edit_in_place_save_waits": "يجري تحديث الروابط في {name}؛ احفظه بعد انتهائه",
     "ui.edit_in_place_saved_elsewhere": "حُفظ الجزء في ملف آخر؛ ما زال التجميع مرتبطًا بـ {name}",
+    "ui.finish_edit": "إنهاء التحرير",
     "cmd.component_finish_edit": "إنهاء التحرير"
   },
   "de": {
@@ -48,6 +50,7 @@
     "ui.edit_in_place_save_first": "Zuerst die Baugruppe speichern: ihre verknüpften Designs werden von ihrer Datei aus gefunden",
     "ui.edit_in_place_save_waits": "In {name} werden die Verknüpfungen aktualisiert; danach speichern",
     "ui.edit_in_place_saved_elsewhere": "Das Teil wurde in eine andere Datei gespeichert; die Baugruppe verknüpft weiterhin {name}",
+    "ui.finish_edit": "Bearbeitung beenden",
     "cmd.component_finish_edit": "Bearbeitung beenden"
   },
   "he": {
@@ -65,6 +68,7 @@
     "ui.edit_in_place_save_first": "יש לשמור קודם את ההרכבה: התכנים המקושרים שלה נמצאים לפי הקובץ שלה",
     "ui.edit_in_place_save_waits": "עדכון הקישורים פועל ב-{name}; יש לשמור לאחר שיסתיים",
     "ui.edit_in_place_saved_elsewhere": "החלק נשמר לקובץ אחר; ההרכבה עדיין מקושרת אל {name}",
+    "ui.finish_edit": "סיום עריכה",
     "cmd.component_finish_edit": "סיום עריכה"
   },
   "ja": {
@@ -82,6 +86,7 @@
     "ui.edit_in_place_save_first": "先にアセンブリを保存してください。リンクされたデザインはそのファイルから見つけます",
     "ui.edit_in_place_save_waits": "{name} のリンクを更新中です。完了してから保存してください",
     "ui.edit_in_place_saved_elsewhere": "部品は別のファイルに保存されました。アセンブリは引き続き {name} にリンクしています",
+    "ui.finish_edit": "編集を終了",
     "cmd.component_finish_edit": "編集を終了"
   },
   "vi": {
@@ -99,6 +104,7 @@
     "ui.edit_in_place_save_first": "Hãy lưu cụm lắp ráp trước: các thiết kế liên kết của nó được tìm từ tệp của nó",
     "ui.edit_in_place_save_waits": "Đang cập nhật liên kết trong {name}; hãy lưu sau khi hoàn tất",
     "ui.edit_in_place_saved_elsewhere": "Chi tiết đã được lưu vào tệp khác; cụm lắp ráp vẫn liên kết với {name}",
+    "ui.finish_edit": "Hoàn tất chỉnh sửa",
     "cmd.component_finish_edit": "Kết thúc chỉnh sửa"
   },
   "zh": {
@@ -116,6 +122,7 @@
     "ui.edit_in_place_save_first": "请先保存装配体：其链接设计根据其文件查找",
     "ui.edit_in_place_save_waits": "正在更新 {name} 中的链接；请在完成后保存",
     "ui.edit_in_place_saved_elsewhere": "零件已保存到其他文件；装配体仍链接 {name}",
+    "ui.finish_edit": "完成编辑",
     "cmd.component_finish_edit": "完成编辑"
   }
 }

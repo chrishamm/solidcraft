@@ -559,6 +559,14 @@ fn what_is_done_in_the_assembly_while_it_refreshes_stays() {
 }
 
 #[test]
+fn the_ribbon_button_reads_finish_edit_in_every_language() {
+    // A bare "Finish" is a surface finish in other catalogs (German "Oberfläche")
+    let label = crate::workspace::ribbon_button_label(solidcraft_engine::find_command("component.finish_edit").unwrap());
+    assert_eq!(label, "Finish Edit");
+    assert_eq!(crate::i18n::Locale::for_language("de").label(label), "Bearbeitung beenden");
+}
+
+#[test]
 fn finish_editing_keeps_its_panel_to_itself() {
     let mut app = SolveApp::new(Session::default(), Default::default());
     let extrude = crate::toolbar_custom::pinned_on(&app, "MODEL", "solid.extrude");

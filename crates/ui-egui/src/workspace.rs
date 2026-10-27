@@ -419,7 +419,7 @@ pub const RIBBON_LABELS: &[(&str, &str)] = &[
     ("sketch.create", "New Sketch"),
     ("sketch.dimension", "Dimension"),
     ("sketch.finish", "Finish Sketch"),
-    ("component.finish_edit", "Finish"),
+    ("component.finish_edit", "Finish Edit"),
     ("sketch.pattern.circular", "Circular"),
     ("sketch.pattern.rectangular", "Rectangular"),
     ("sketch.rectangle.two_point", "Rectangle"),
