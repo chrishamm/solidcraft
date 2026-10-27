@@ -19,6 +19,10 @@
     "prefs.linked_designs": "リンクされたデザイン",
     "settings.update_changed_links": "別のタブを開いている間に変更されたリンク先デザインを更新"
   },
+  "vi": {
+    "prefs.linked_designs": "Thiết kế liên kết",
+    "settings.update_changed_links": "Cập nhật các thiết kế liên kết đã thay đổi trong khi một thẻ khác đang mở"
+  },
   "zh": {
     "prefs.linked_designs": "链接设计",
     "settings.update_changed_links": "更新在打开其他标签页期间已更改的链接设计"
