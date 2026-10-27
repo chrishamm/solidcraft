@@ -38,8 +38,6 @@ pub struct PartContext {
     pub bounds: Aabb3,
     /// The part's tab was opened for this edit, so Finish Editing closes it again.
     pub opened: bool,
-    /// The number of tabs when the edit started (more once the part has opened in a new one).
-    tabs: usize,
 }
 
 /// Update Links run on the assembly while its part is edited in place.
@@ -162,6 +160,7 @@ pub(crate) fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) 
     let Some(part) = link["file"].as_str().map(str::to_string) else { return };
     let placement = path.unwrap_or_else(|| app.session.doc.first_path(component));
     let Some((bodies, triangles, bounds)) = snapshot(&app.session, component, &placement) else { return };
+    let opened = crate::documents::session_at(app, &part).is_none();
     app.edit_in_place.pending = Some(PartContext {
         assembly,
         assembly_name: app.session.doc.name.clone(),
@@ -171,8 +170,7 @@ pub(crate) fn enter(app: &mut SolveApp, component: u64, path: Option<Vec<u64>>) 
         bodies,
         triangles: Arc::new(triangles),
         bounds,
-        opened: false,
-        tabs: app.docs.count(),
+        opened,
     });
     crate::network_prompt::open_linked(app, &link);
 }
@@ -184,15 +182,26 @@ pub(crate) fn attach(app: &mut SolveApp) {
     let Some(mut context) = app.edit_in_place.pending.take_if(|c| shown.is_some_and(|p| crate::documents::same_path(p, &c.part))) else {
         return;
     };
-    context.opened = app.docs.count() > context.tabs;
+    // Entered again in a tab an earlier edit opened: that tab is still this edit's to close.
+    if let Some(old) = app.edit_in_place.active.as_ref().filter(|c| crate::documents::same_path(&c.part, &context.part)) {
+        context.opened |= old.opened;
+    }
     app.edit_in_place.active = Some(context);
     app.fit_view();
+}
+
+/// The name of the design shown, while it reads its links for a part edited in place (it is
+/// not saved until the read is done).
+pub(crate) fn refreshing_assembly(app: &SolveApp) -> Option<String> {
+    let r = app.edit_in_place.refresh.as_ref()?;
+    app.session.path.as_deref().filter(|p| crate::documents::same_path(p, &r.assembly))?;
+    Some(app.session.doc.name.clone())
 }
 
 /// Update Links pressed while a part is edited in place: the assembly's tab reads its links again
 /// (off the window thread), and the picture around the part follows.
 pub(crate) fn refresh(app: &mut SolveApp) {
-    if app.edit_in_place.refreshing() {
+    if busy(app) {
         return;
     }
     let Some(assembly) = app.edit_in_place.active.as_ref().map(|c| c.assembly.clone()) else { return };
@@ -232,7 +241,7 @@ fn take_refresh(app: &mut SolveApp) {
         Err(std::sync::mpsc::TryRecvError::Disconnected) => Err(crate::i18n::tr("ui.edit_in_place_refresh_stopped").to_string()),
     };
     let Some(r) = app.edit_in_place.refresh.take() else { return };
-    let computed = match result {
+    let mut computed = match result {
         Ok(computed) => computed,
         Err(e) => {
             app.set_status(e, true);
@@ -244,6 +253,11 @@ fn take_refresh(app: &mut SolveApp) {
         app.set_status(crate::i18n::tr("ui.edit_in_place_refresh_dropped").to_string(), true);
         return;
     }
+    // What was picked or activated in the assembly meanwhile stays as it is.
+    computed.selection.clone_from(&session.selection);
+    computed.active_sketch = session.active_sketch;
+    computed.active_component = session.active_component;
+    computed.active_occurrence_path.clone_from(&session.active_occurrence_path);
     session.accept_computed(computed);
     // Every link was read: coming back to the assembly need not read them again.
     crate::documents::read_again_at(app, &r.assembly);
@@ -261,8 +275,12 @@ fn take_refresh(app: &mut SolveApp) {
 /// Finish Editing: save the part (and wait for it), go back to the assembly, close the part's
 /// tab when the edit opened it and read the assembly's links again.
 pub(crate) fn finish(app: &mut SolveApp) {
-    let Some(part) = app.edit_in_place.active.as_ref().map(|c| c.part.clone()) else { return };
-    if busy(app) {
+    let Some(part) = app.edit_in_place.active.as_ref().map(|c| c.part.clone()) else {
+        app.set_status(crate::i18n::tr("ui.edit_in_place_none").to_string(), true);
+        return;
+    };
+    if !can_finish(app) {
+        app.set_status(crate::i18n::tr("ui.edit_in_place_busy").to_string(), true);
         return;
     }
     // Saved to another file (Save As, a copy of a read-only design): the assembly still links this one.
@@ -289,10 +307,35 @@ pub(crate) fn finish(app: &mut SolveApp) {
     if context.opened {
         crate::documents::close(app, part_tab, false);
     }
-    // Coming back to its tab already updates what changed (`update_changed_links`).
-    if !app.preferences.update_changed_links {
-        crate::network_prompt::update_links(app);
+    // Coming back to its tab reads what changed, unless it read nothing (`update_changed_links`
+    // off, the web build without file times): then the part is read here.
+    if (!app.preferences.update_changed_links || cfg!(target_arch = "wasm32")) && app.file_load.idle() {
+        let mut request = crate::file_load::Request::new("", crate::file_load::Kind::UpdateLinks);
+        request.options.insert("component".into(), json!(context.component));
+        request.design = Some(context.assembly);
+        let _ = crate::file_load::begin_request(app, request);
     }
+}
+
+/// Nothing is under way in the part that leaving its tab would cut short or that waits for an
+/// answer: a dialog or tool, a feature being computed or edited, a sketch, a prompt or Home.
+fn can_finish(app: &SolveApp) -> bool {
+    !busy(app)
+        && app.dialog.is_none()
+        && app.applying.is_none()
+        && app.editing_state.is_none()
+        && app.pending_feature_edit.is_none()
+        && app.deferred.is_none()
+        && app.tool.is_none()
+        && app.session.active_sketch.is_none()
+        && app.docs.closing.is_none()
+        && app.docs.quitting.is_none()
+        && app.docs.batch.is_none()
+        && app.network_prompt.is_none()
+        && app.lock_prompts.is_empty()
+        && !app.disk_prompt
+        && app.tree.capture_prompt.is_none()
+        && !app.home.open
 }
 
 /// Each frame: a refresh that finished is taken up; an edit waiting for a part that nothing will
@@ -303,19 +346,21 @@ pub(crate) fn tick(app: &mut SolveApp) {
     if app.edit_in_place.pending.is_some() && !app.file_load.busy() && app.network_prompt.is_none() && app.lock_prompts.is_empty() {
         app.edit_in_place.pending = None;
     }
-    let waiting = app.saving.is_some() || app.file_picker.is_some() || app.disk_prompt;
+    let waiting = app.saving.is_some() || app.file_picker.is_some() || app.disk_prompt || app.tree.capture_prompt.is_some();
     if !waiting && let Some(part) = app.edit_in_place.finish_after_save.take() {
         let shown = app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, &part));
         if shown && !app.session.is_dirty() {
             finish(app);
+        } else if shown {
+            app.set_status(crate::i18n::tr("ui.edit_in_place_not_saved").to_string(), true);
         }
     }
 }
 
-/// The mouse's back button (or a keyboard's Back key) pressed: Finish Editing, unless a dialog, a
-/// tool or a sketch is open in the part.
+/// The mouse's back button (or a keyboard's Back key) pressed while a part is edited in place:
+/// Finish Editing, which says why when something open in the part holds it up.
 pub(crate) fn back(app: &mut SolveApp) {
-    if app.edit_in_place.active.is_some() && app.dialog.is_none() && app.tool.is_none() && app.session.active_sketch.is_none() {
+    if app.edit_in_place.active.is_some() {
         finish(app);
     }
 }

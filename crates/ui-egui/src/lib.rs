@@ -993,6 +993,8 @@ impl SolveApp {
         if let Ok(v) = &r {
             match id {
                 "view.fit" | "view.home" => self.frame_view(id == "view.home"),
+                // The engine has no edit in place to finish; the window does, for every caller.
+                "component.finish_edit" => edit_in_place::finish(self),
                 "view.tool" => {
                     self.viewport.nav = match v.get("tool").and_then(Value::as_str) {
                         Some("orbit") => Some(viewport::NavMode::Orbit),
@@ -1385,10 +1387,6 @@ impl SolveApp {
         }
         if id == "sketch.finish" {
             self.finish_sketch();
-            return;
-        }
-        if id == "component.finish_edit" {
-            edit_in_place::finish(self);
             return;
         }
         if id == "sketch.cancel" {
@@ -2026,7 +2024,8 @@ impl SolveApp {
         file_load::tick(self, ctx);
         save_job::tick(self, false);
         edit_in_place::tick(self);
-        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1) || i.key_pressed(egui::Key::BrowserBack)) {
+        let typing = ctx.egui_wants_keyboard_input();
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1) || (i.key_pressed(egui::Key::BrowserBack) && !typing)) {
             edit_in_place::back(self);
         }
         if self.saving.is_some() || self.edit_in_place.refreshing() {

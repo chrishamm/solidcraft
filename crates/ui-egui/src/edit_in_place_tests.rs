@@ -394,6 +394,68 @@ fn the_back_button_finishes_the_edit_unless_a_dialog_is_open() {
 }
 
 #[test]
+fn the_assembly_is_not_saved_while_it_reads_its_links_for_the_part() {
+    let mut f = assembly("save-waits");
+    f.app.preferences.update_changed_links = false;
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    save_box(&f.post_file, [10.0, 10.0, 10.0], true);
+    refresh(&mut f.app);
+    crate::documents::switch(&mut f.app, 0);
+    assert!(!crate::save_job::start(&mut f.app, "file.save", json!({})));
+    assert!(f.app.saving.is_none());
+    assert!(f.app.status.as_ref().is_some_and(|(s, _, error)| *error && s.starts_with("Update Links is running")), "{:?}", f.app.status);
+    settle(&mut f.app);
+    assert!((volume(&f.app) - 7250.0).abs() < 1e-6, "{}", volume(&f.app));
+    assert!(f.app.session.is_dirty(), "the read is taken up and still to be saved");
+}
+
+#[test]
+fn finish_editing_waits_for_what_is_open_in_the_part() {
+    let mut f = assembly("waits");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    f.app.start("solid.box");
+    assert!(f.app.dialog.is_some());
+    // As an agent calls it: the command, not the button
+    f.app.run("component.finish_edit", json!({})).unwrap();
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_some() && f.app.dialog.is_some());
+    assert!(f.app.status.as_ref().is_some_and(|(_, _, error)| *error), "{:?}", f.app.status);
+    crate::dialogs::cancel(&mut f.app);
+    f.app.run("component.finish_edit", json!({})).unwrap();
+    settle(&mut f.app);
+    assert!(f.app.edit_in_place.active.is_none());
+    assert_eq!(f.app.docs.count(), 1);
+}
+
+#[test]
+fn finish_editing_keeps_its_panel_to_itself() {
+    let mut app = SolveApp::new(Session::default(), Default::default());
+    let extrude = crate::toolbar_custom::pinned_on(&app, "MODEL", "solid.extrude");
+    crate::toolbar_custom::reorder(&mut app, "MODEL", "solid.extrude", "FINISH EDITING", None);
+    assert_eq!(crate::toolbar_custom::pinned_on(&app, "MODEL", "solid.extrude"), extrude);
+    crate::toolbar_custom::reorder(&mut app, "MODEL", "component.finish_edit", "CREATE", None);
+    assert_ne!(crate::toolbar_custom::pinned_on(&app, "MODEL", "component.finish_edit"), Some("CREATE"));
+}
+
+#[test]
+fn entering_again_keeps_the_tab_the_first_edit_opened() {
+    let mut f = assembly("again");
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert!(context(&f.app).opened);
+    crate::documents::switch(&mut f.app, 0);
+    double_click_component(&mut f.app, json!({"component": f.plate}));
+    settle(&mut f.app);
+    assert!(showing(&f.app, &f.plate_file));
+    assert!(context(&f.app).opened, "the part's tab is still this edit's to close");
+    finish(&mut f.app);
+    settle(&mut f.app);
+    assert_eq!(f.app.docs.count(), 1);
+}
+
+#[test]
 fn turned_off_or_unsaved_double_clicking_a_linked_component_does_what_it_did() {
     let mut f = assembly("off");
     f.app.preferences.double_click_components = false;
