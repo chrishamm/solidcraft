@@ -116,7 +116,7 @@ fn with_changed_links_left_alone_finish_editing_updates_the_assembly_itself() {
     finish(&mut f.app);
     settle(&mut f.app);
     assert_eq!(f.app.docs.count(), 1);
-    assert!((volume(&f.app) - 8000.0).abs() < 1e-6, "Finish Editing promises the change: {}", volume(&f.app));
+    assert!((volume(&f.app) - 8000.0).abs() < 1e-6, "Finish Edit promises the change: {}", volume(&f.app));
 }
 
 #[test]
@@ -388,7 +388,7 @@ fn finish_editing_is_a_model_tab_button_only_while_a_part_is_edited_in_place() {
     double_click_component(&mut h.app, json!({"component": f.plate}));
     settle(&mut h.app);
     h.frames(3);
-    assert!(crate::scenario::rect_of("panel:MODEL:FINISH EDITING").is_some(), "the part's MODEL tab ends with Finish Editing");
+    assert!(crate::scenario::rect_of("panel:MODEL:FINISH EDITING").is_some(), "the part's MODEL tab ends with Finish Edit");
     h.app.start("component.finish_edit");
     settle(&mut h.app);
     h.frames(3);

@@ -242,7 +242,7 @@ fn home_panel(tab: &str, id: &str) -> Option<&'static str> {
 }
 
 /// FINISH EDITING, shown only while a linked design is edited in place, keeps its one button:
-/// nothing moves into it, and Finish Editing moves nowhere else.
+/// nothing moves into it, and Finish Edit moves nowhere else.
 fn fixed(tab: &str, panel: &str, id: &str) -> bool {
     (tab == "MODEL" && panel == "FINISH EDITING") || id == "component.finish_edit"
 }

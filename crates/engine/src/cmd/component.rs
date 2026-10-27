@@ -47,7 +47,7 @@ pub static COMMANDS: &[CommandSpec] = &[
         .icon("component")
         .params("bodies: [names] → one new component per body, named after it"),
     CommandSpec::new("component.activate", "Activate Component", activate).icon("activate").noundo().params("component: id or name (0 or \"root\" for the design); occurrence?, path?: exact placement used to author shared geometry"),
-    CommandSpec::new("component.finish_edit", "Finish Editing", crate::checked!("component.finish_edit", finish_edit))
+    CommandSpec::new("component.finish_edit", "Finish Edit", crate::checked!("component.finish_edit", finish_edit))
         .icon("finish_edit")
         .noundo()
         .doc_only()

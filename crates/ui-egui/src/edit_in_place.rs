@@ -1,6 +1,6 @@
 //! Edit in place: double-clicking a linked component opens the design it comes from, with the
 //! rest of the assembly drawn faded around it where the component sits, so its own timeline,
-//! browser and commands are at hand. Finish Editing saves the part and goes back to the assembly,
+//! browser and commands are at hand. Finish Edit saves the part and goes back to the assembly,
 //! which reads the link again.
 //!
 //! The part is an ordinary tab: saving, autosave, recovery, closing and quitting treat it as any
@@ -36,7 +36,7 @@ pub struct PartContext {
     pub triangles: Arc<Vec<([f32; 3], [f32; 3])>>,
     /// Their extent in the part's frame, so fitting the view frames the assembly too.
     pub bounds: Aabb3,
-    /// The part's tab was opened for this edit, so Finish Editing closes it again.
+    /// The part's tab was opened for this edit, so Finish Edit closes it again.
     pub opened: bool,
 }
 
@@ -56,7 +56,7 @@ struct Refresh {
 pub struct EditInPlace {
     pub active: Option<PartContext>,
     pending: Option<PartContext>,
-    /// Finish Editing is waiting for the save of the part at this file.
+    /// Finish Edit is waiting for the save of the part at this file.
     finish_after_save: Option<String>,
     refresh: Option<Refresh>,
 }
@@ -295,7 +295,7 @@ fn take_refresh(app: &mut SolveApp) {
     app.set_status(language.format("ui.command_done", &[("command", language.label(crate::command_label("component.update_links")))]), false);
 }
 
-/// Finish Editing from the window (its button, the back button): a part with changes is saved
+/// Finish Edit from the window (its button, the back button): a part with changes is saved
 /// first, with whatever the save asks, and the edit finishes once the save is done.
 pub(crate) fn finish(app: &mut SolveApp) {
     if let Err(why) = finish_with(app, true) {
@@ -304,7 +304,7 @@ pub(crate) fn finish(app: &mut SolveApp) {
 }
 
 /// `component.finish_edit` run as a command: it opens nothing, so a part with changes is
-/// refused (save it first), as is anything else that holds Finish Editing up. The refusal is
+/// refused (save it first), as is anything else that holds Finish Edit up. The refusal is
 /// its error, which the caller reports.
 pub(crate) fn finish_command(app: &mut SolveApp) -> Result<(), String> {
     finish_with(app, false)
@@ -374,7 +374,7 @@ fn can_finish(app: &SolveApp) -> bool {
 }
 
 /// Each frame: a refresh that finished is taken up; an edit waiting for a part that nothing will
-/// open any more is dropped; and Finish Editing goes on once the part's save is done, in the
+/// open any more is dropped; and Finish Edit goes on once the part's save is done, in the
 /// part's own tab (a save that failed, was cancelled or went elsewhere leaves the edit as it was).
 pub(crate) fn tick(app: &mut SolveApp) {
     take_refresh(app);
@@ -393,7 +393,7 @@ pub(crate) fn tick(app: &mut SolveApp) {
 }
 
 /// The mouse's back button (or a keyboard's Back key) pressed while a part is edited in place:
-/// Finish Editing, which says why when something open in the part holds it up.
+/// Finish Edit, which says why when something open in the part holds it up.
 pub(crate) fn back(app: &mut SolveApp) {
     if app.edit_in_place.active.is_some() {
         finish(app);

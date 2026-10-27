@@ -271,7 +271,7 @@ const MAX_BATCH: usize = 10_000;
 /// bypass.
 const LOADS_A_FILE: [&str; 3] = ["doc.open", "file.insert_step", "file.insert_mesh"];
 
-/// Finish Editing leaves the part for the assembly's tab: a batch's rollback, or a script's
+/// Finish Edit leaves the part for the assembly's tab: a batch's rollback, or a script's
 /// later steps, would land in the wrong design.
 const SWITCHES_DESIGN: &str = "component.finish_edit";
 
