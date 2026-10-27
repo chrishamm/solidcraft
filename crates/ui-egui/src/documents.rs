@@ -83,7 +83,8 @@ pub struct Documents {
     /// first; Cancel stops the rest (#3055).
     pub batch: Option<Vec<usize>>,
     /// The shown design's linked design files as it last read them: their modification time and
-    /// size when Update Links last read each without an error, or when the link was first seen.
+    /// size when Update Links last read each without an error, or when the design first showed
+    /// the link (opened, adopted in place, the link just made).
     /// Coming back to its tab reads again those that differ (`linked_source::update_changed`).
     pub(crate) link_stamps: Vec<(u64, crate::linked_source::Stamp)>,
 }
@@ -221,8 +222,9 @@ pub fn switch(app: &mut SolveApp, i: usize) {
         *s = Some(out);
     }
     app.docs.active = i;
-    // Closing several tabs or quitting goes through them: what they missed waits for their return.
-    if app.docs.batch.is_none() && app.docs.quitting.is_none() {
+    // Closing several tabs, quitting, or a "save changes?" for this tab goes through them, and a
+    // save then must not wait for a read: what they missed waits for their return.
+    if app.docs.batch.is_none() && app.docs.quitting.is_none() && app.docs.closing.is_none() {
         crate::linked_source::update_changed(app);
     }
 }
@@ -249,7 +251,7 @@ pub(crate) fn reuse_path(app: &mut SolveApp, path: &str) -> Result<bool, String>
     Ok(true)
 }
 
-fn same_path(a: &str, b: &str) -> bool {
+pub(crate) fn same_path(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
@@ -303,6 +305,9 @@ pub fn adopt(app: &mut SolveApp, session: Session) {
         app.menu.props = None;
         crate::sketch_attachment_ui::clear(app);
         app.session.replace_design(session);
+        // The blank design's record of its links goes with it; the new one's start now.
+        app.docs.link_stamps.clear();
+        crate::linked_source::note_unread(app);
         crate::render_workspace::reset_document(app);
         app.session.invalidate_view(rev);
         app.cam = Camera::default();
@@ -1019,6 +1024,8 @@ pub fn answer_prompt(app: &mut SolveApp, answer: Answer) {
             app.docs.closing = None;
             app.docs.quitting = None;
             app.docs.batch = None;
+            // The tab left in front was shown on the way without reading what it missed.
+            crate::linked_source::update_changed(app);
         }
     }
     quit_step(app);
@@ -1035,12 +1042,14 @@ pub(crate) fn saved_for_close(app: &mut SolveApp) {
     if app.docs.quitting.is_some() {
         if !saved {
             app.docs.quitting = None;
+            crate::linked_source::update_changed(app);
         }
     } else if saved {
         close(app, app.docs.active, true);
     } else {
-        // Save As cancelled: the tabs not closed yet stay.
+        // Save As cancelled: the tabs not closed yet stay, the one in front reads what it missed.
         app.docs.batch = None;
+        crate::linked_source::update_changed(app);
     }
     quit_step(app);
     batch_step(app);

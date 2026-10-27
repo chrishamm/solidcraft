@@ -55,6 +55,9 @@ pub struct Request {
     pub options: serde_json::Map<String, Value>,
     /// Network servers the user allowed for this one request ("Allow once", `network_prompt`).
     pub allow_hosts: Vec<String>,
+    /// The saved design this request is for, when it must not run on another: one shown in its
+    /// place by the time the request starts drops it.
+    pub design: Option<String>,
 }
 
 impl Request {
@@ -66,6 +69,7 @@ impl Request {
             scope: solidcraft_engine::io::vfs::current_scope(),
             options: Default::default(),
             allow_hosts: Vec::new(),
+            design: None,
         }
     }
     fn insert(&self) -> bool {
@@ -195,6 +199,10 @@ pub struct FileLoad {
 }
 
 impl FileLoad {
+    /// How many more requests can wait.
+    pub(crate) fn room(&self) -> usize {
+        crate::documents::MAX_OPEN.saturating_sub(self.queued.len())
+    }
     /// A file operation is under way: the design waits for it.
     pub fn busy(&self) -> bool {
         self.running.as_ref().is_some_and(|r| !r.cancelled()) || !self.queued.is_empty()
@@ -360,7 +368,8 @@ pub fn control(app: &mut SolveApp, req: crate::control::ControlRequest) -> Optio
         options.remove("path");
         options.retain(|_, v| !v.is_null());
     }
-    let _ = begin_request(app, Request { path: path.into(), kind, reply: Some(req.reply.clone()), scope, options, allow_hosts: Vec::new() });
+    let request = Request { path: path.into(), kind, reply: Some(req.reply.clone()), scope, options, allow_hosts: Vec::new(), design: None };
+    let _ = begin_request(app, request);
     None
 }
 
@@ -394,6 +403,10 @@ fn start(app: &mut SolveApp) {
     }
     let Some(request) = app.file_load.queued.pop_front() else { return };
     if reuse_open(app, &request) {
+        return;
+    }
+    if request.design.as_deref().is_some_and(|d| !app.session.path.as_deref().is_some_and(|p| crate::documents::same_path(p, d))) {
+        request.answer(Err("the design it was for is no longer shown".into()));
         return;
     }
     if matches!(request.kind, Kind::Open | Kind::Recover { .. })
