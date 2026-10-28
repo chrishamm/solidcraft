@@ -21,7 +21,8 @@
     "ui.edit_in_place_saved_elsewhere": "The part was saved to another file; the assembly still links {name}",
     "ui.edit_in_place_wait": "Wait until what is running in the design is done",
     "cmd.component_edit_in_place": "Edit in Place",
-    "cmd.component_finish_edit": "Finish Edit"
+    "cmd.component_finish_edit": "Finish Edit",
+    "help.component.finish_edit": "Saves the part you are editing in place, returns to its assembly and updates the assembly from it. Use it when your changes to the linked part are done."
   },
   "ar": {
     "settings.double_click_components": "انقر نقرًا مزدوجًا على مكوّن لتنشيطه، أو لتحرير مكوّن مرتبط في مكانه",
@@ -45,7 +46,8 @@
     "ui.edit_in_place_saved_elsewhere": "حُفظ الجزء في ملف آخر؛ ما زال التجميع مرتبطًا بـ {name}",
     "ui.edit_in_place_wait": "انتظر حتى ينتهي ما يجري في التصميم",
     "cmd.component_edit_in_place": "تحرير في المكان",
-    "cmd.component_finish_edit": "إنهاء التحرير"
+    "cmd.component_finish_edit": "إنهاء التحرير",
+    "help.component.finish_edit": "يحفظ الجزء الذي تحرّره في مكانه، ويعود إلى تجميعه ويحدّث التجميع منه. استخدمه عند الانتهاء من تغييراتك على الجزء المرتبط."
   },
   "de": {
     "settings.double_click_components": "Doppelklick auf eine Komponente aktiviert sie oder bearbeitet eine verknüpfte an Ort und Stelle",
@@ -69,7 +71,8 @@
     "ui.edit_in_place_saved_elsewhere": "Das Teil wurde in eine andere Datei gespeichert; die Baugruppe verknüpft weiterhin {name}",
     "ui.edit_in_place_wait": "Warten, bis abgeschlossen ist, was im Design läuft",
     "cmd.component_edit_in_place": "An Ort und Stelle bearbeiten",
-    "cmd.component_finish_edit": "Bearbeitung beenden"
+    "cmd.component_finish_edit": "Bearbeitung beenden",
+    "help.component.finish_edit": "Speichert das an Ort und Stelle bearbeitete Teil, kehrt zu seiner Baugruppe zurück und aktualisiert die Baugruppe daraus. Verwenden Sie es, wenn Ihre Änderungen am verknüpften Teil fertig sind."
   },
   "he": {
     "settings.double_click_components": "לחיצה כפולה על רכיב מפעילה אותו, או עורכת רכיב מקושר במקומו",
@@ -93,7 +96,8 @@
     "ui.edit_in_place_saved_elsewhere": "החלק נשמר לקובץ אחר; ההרכבה עדיין מקושרת אל {name}",
     "ui.edit_in_place_wait": "יש להמתין עד שמה שפועל בתכן יסתיים",
     "cmd.component_edit_in_place": "עריכה במקום",
-    "cmd.component_finish_edit": "סיום עריכה"
+    "cmd.component_finish_edit": "סיום עריכה",
+    "help.component.finish_edit": "שומר את החלק שנערך במקומו, חוזר להרכבה שלו ומעדכן ממנו את ההרכבה. יש להשתמש בו כשהשינויים בחלק המקושר הושלמו."
   },
   "ja": {
     "settings.double_click_components": "コンポーネントをダブルクリックしてアクティブにする、またはリンクされたものをその場で編集する",
@@ -117,7 +121,8 @@
     "ui.edit_in_place_saved_elsewhere": "部品は別のファイルに保存されました。アセンブリは引き続き {name} にリンクしています",
     "ui.edit_in_place_wait": "デザインで実行中の処理が終わるまでお待ちください",
     "cmd.component_edit_in_place": "その場で編集",
-    "cmd.component_finish_edit": "編集を終了"
+    "cmd.component_finish_edit": "編集を終了",
+    "help.component.finish_edit": "その場で編集中の部品を保存し、アセンブリに戻って、その部品でアセンブリを更新します。リンクされた部品への変更が終わったときに使います。"
   },
   "ko": {
     "settings.double_click_components": "구성 요소를 두 번 클릭하여 활성화하거나 연결된 구성 요소를 제자리에서 편집",
@@ -141,7 +146,8 @@
     "ui.edit_in_place_saved_elsewhere": "부품이 다른 파일에 저장되었습니다. 어셈블리는 여전히 {name}에 연결되어 있습니다",
     "ui.edit_in_place_wait": "디자인에서 실행 중인 작업이 끝날 때까지 기다리세요",
     "cmd.component_edit_in_place": "제자리에서 편집",
-    "cmd.component_finish_edit": "편집 완료"
+    "cmd.component_finish_edit": "편집 완료",
+    "help.component.finish_edit": "제자리에서 편집 중인 부품을 저장하고 어셈블리로 돌아가 그 부품으로 어셈블리를 업데이트합니다. 연결된 부품의 변경을 마쳤을 때 사용하세요."
   },
   "vi": {
     "settings.double_click_components": "Nhấp đúp vào một thành phần để kích hoạt nó, hoặc chỉnh sửa tại chỗ một thành phần liên kết",
@@ -165,7 +171,8 @@
     "ui.edit_in_place_saved_elsewhere": "Chi tiết đã được lưu vào tệp khác; cụm lắp ráp vẫn liên kết với {name}",
     "ui.edit_in_place_wait": "Hãy chờ những gì đang chạy trong thiết kế hoàn tất",
     "cmd.component_edit_in_place": "Chỉnh sửa tại chỗ",
-    "cmd.component_finish_edit": "Hoàn tất chỉnh sửa"
+    "cmd.component_finish_edit": "Hoàn tất chỉnh sửa",
+    "help.component.finish_edit": "Lưu chi tiết đang được chỉnh sửa tại chỗ, quay lại cụm lắp ráp của nó và cập nhật cụm lắp ráp từ chi tiết đó. Dùng khi bạn đã hoàn tất các thay đổi cho chi tiết liên kết."
   },
   "zh": {
     "settings.double_click_components": "双击组件以激活它，或在原位编辑链接组件",
@@ -189,6 +196,7 @@
     "ui.edit_in_place_saved_elsewhere": "零件已保存到其他文件；装配体仍链接 {name}",
     "ui.edit_in_place_wait": "请等待设计中正在运行的操作完成",
     "cmd.component_edit_in_place": "原位编辑",
-    "cmd.component_finish_edit": "完成编辑"
+    "cmd.component_finish_edit": "完成编辑",
+    "help.component.finish_edit": "保存正在原位编辑的零件，返回其装配体，并用该零件更新装配体。对链接零件的更改完成后使用。"
   }
 }
