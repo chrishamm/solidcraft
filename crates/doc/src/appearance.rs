@@ -161,6 +161,36 @@ pub fn material_look(material: &str) -> Option<Look> {
 }
 
 impl Document {
+    /// Resolve a picked face through the same appearance chain used by the viewport.
+    pub fn model_face_look(&self, body: &crate::ModelBody, face: usize) -> Option<Look> {
+        self.face_colors(body).into_iter().find(|(index, _)| *index == face).map(|(_, look)| look).or_else(|| self.model_display_look(body))
+    }
+
+    /// Body appearance including the imported fallback used by `body_color`.
+    pub fn model_display_look(&self, body: &crate::ModelBody) -> Option<Look> {
+        self.model_body_look(body).or_else(|| {
+            let color = body.body.color().or_else(|| body.imported.as_ref().and_then(|p| p.color))?;
+            Some(Look::custom(color.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8), self.model_body_opacity(body)))
+        })
+    }
+
+    /// Distinct appearances used by an object, including its face overrides. `None` is
+    /// the unassigned/imported body appearance. Repeated faces count as one object user.
+    pub fn model_used_looks(&self, body: &crate::ModelBody) -> Vec<Option<Look>> {
+        let faces = self.face_colors(body);
+        let mut looks = Vec::new();
+        if faces.len() < body.body.face_count() || faces.is_empty() {
+            looks.push(self.model_display_look(body));
+        }
+        for (_, look) in faces {
+            let look = Some(look);
+            if !looks.contains(&look) {
+                looks.push(look);
+            }
+        }
+        looks
+    }
+
     /// Shared definition appearance for a computed occurrence body.
     pub fn model_body_look(&self, body: &crate::ModelBody) -> Option<Look> {
         let name = body.definition_name();
@@ -201,9 +231,19 @@ impl Document {
     /// The faces of a body with appearances of their own: (B-rep face index, look). A later
     /// assignment to the same face wins.
     pub fn face_colors(&self, b: &crate::ModelBody) -> Vec<(usize, Look)> {
+        let mut out = self.imported_face_colors(b);
+        for (index, look) in self.authored_face_colors(b) {
+            out.retain(|(old, _)| *old != index);
+            out.push((index, look));
+        }
+        out
+    }
+
+    /// Imported paint alone, after applying body-appearance precedence.
+    pub(crate) fn imported_face_colors(&self, b: &crate::ModelBody) -> Vec<(usize, Look)> {
         // An assigned body appearance replaces imported paint; design face appearances still win.
         let to8 = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
-        let mut out: Vec<(usize, Look)> = if self.appearances.bodies.contains_key(b.definition_name()) {
+        if self.appearances.bodies.contains_key(b.definition_name()) {
             Vec::new()
         } else {
             match b.body.paint() {
@@ -219,7 +259,13 @@ impl Document {
                     None => Vec::new(),
                 },
             }
-        };
+        }
+    }
+
+    /// Design-authored face overrides, without imported STEP paint. Linked designs carry
+    /// these independently so an inherited body look does not hide their face overrides.
+    pub fn authored_face_colors(&self, b: &crate::ModelBody) -> Vec<(usize, Look)> {
+        let mut out = Vec::new();
         for f in self.appearances.faces.iter().filter(|f| f.body == b.definition_name()) {
             let (p, look) = (crate::apply_point(&b.source_transform, f.point), f.look.clone());
             if f.strict_name {
@@ -383,6 +429,28 @@ mod tests {
         let restored = doc.face_colors(body);
         assert_eq!(restored.len(), face_count);
         assert!(restored.iter().all(|(face, look)| *look == if *face == 0 { face_look.clone() } else { Look::custom([255, 0, 0], 0.5) }));
+    }
+
+    #[test]
+    fn linked_paint_retains_imported_faces_without_baking_authored_overrides() {
+        let mut state = crate::ModelState::default();
+        state.bodies.push(imported_box());
+        let body = &state.bodies[0];
+        let mut doc = Document::default();
+        doc.appearances.faces.push(FaceLook {
+            body: body.name.clone(),
+            point: Vec3::ZERO,
+            look: Look::custom([0, 255, 0], 1.0),
+            name: Some(crate::naming::face_names(body)[0].clone()),
+            strict_name: false,
+            certificate: None,
+        });
+        let exported = doc.painted(&state);
+        assert!(exported.bodies[0].body.paint().unwrap().faces.iter().any(|face| face.color == [0., 1., 0.]));
+        let linked = doc.painted_for_link(&state);
+        let faces = &linked.bodies[0].body.paint().unwrap().faces;
+        assert_eq!(faces.len(), body.body.faces(0.01).unwrap().len());
+        assert!(faces.iter().all(|face| face.color == [1., 0., 0.] && face.opacity == 0.5));
     }
 
     #[test]

@@ -55,6 +55,31 @@ fn repeat_is_refused_outside_the_app_and_changes_nothing() {
 }
 
 #[test]
+fn creating_after_deleting_future_features_keeps_the_new_feature_active() {
+    let mut s = Session::default();
+    for (name, corner, size) in [("Base", [0, 0, 0], 10), ("Later1", [20, 0, 0], 2), ("Later2", [40, 0, 0], 3)] {
+        run(&mut s, "solid.box", json!({"name": name, "corner": corner, "length": size, "width": size, "height": size, "operation": "new"}));
+    }
+
+    run(&mut s, "timeline.roll_to", json!({"position": 1}));
+    run(&mut s, "solid.box", json!({"name": "Inserted", "corner": [60, 0, 0], "length": 4, "width": 4, "height": 4, "operation": "new"}));
+    assert_eq!(s.doc.features.iter().map(|feature| feature.name.as_str()).collect::<Vec<_>>(), ["Base", "Inserted", "Later1", "Later2"]);
+    assert_eq!(s.doc.marker, Some(2), "with later features, the new feature is inserted at the cursor");
+
+    run(&mut s, "timeline.delete", json!({"features": ["Later1", "Later2"]}));
+    assert_eq!(s.doc.features.len(), 2);
+    assert_eq!(s.doc.marker, Some(2), "the cursor is at the end after deleting all later features");
+
+    run(&mut s, "solid.box", json!({"name": "Appended", "corner": [80, 0, 0], "length": 5, "width": 5, "height": 5, "operation": "new"}));
+
+    assert_eq!(s.doc.features.iter().map(|feature| feature.name.as_str()).collect::<Vec<_>>(), ["Base", "Inserted", "Appended"]);
+    assert_eq!(s.doc.marker, Some(3), "the new feature advances the cursor to the end");
+    assert_eq!(s.model.state().bodies.len(), 3, "the appended feature is evaluated, not left in the future");
+    let volume = run(&mut s, "inspect.measure", json!({}))["total"]["volume_mm3"].as_f64().unwrap();
+    assert!((volume - 1189.0).abs() < 1e-6, "{volume}");
+}
+
+#[test]
 fn g2_fillet_survives_edit_undo_and_reopen() {
     use solidcraft_doc::{Document, FeatureKind, FilletStyle};
     let mut s = Session::default();
@@ -1218,4 +1243,42 @@ fn a_reorder_keeps_the_model_it_was_checked_on() {
     let mut fresh = solidcraft_doc::Model::new();
     fresh.evaluate(&s.doc);
     assert_eq!(fresh.state().bodies.len(), bodies(&s));
+}
+
+#[test]
+fn select_same_look_uses_resolved_looks_without_document_history_edits_and_refuses_hostile_input() {
+    let mut s = Session::default();
+    for (name, x) in [("A", 0), ("B", 20), ("C", 40)] {
+        run(&mut s, "solid.box", json!({"corner":[x,0,0],"length":10,"width":10,"height":10,"body_name":name}));
+    }
+    run(&mut s, "appearance.assign", json!({"bodies":["A","B"],"appearance":"ABS - Red"}));
+    run(&mut s, "appearance.assign", json!({"bodies":["C"],"appearance":"ABS - Blue"}));
+    run(&mut s, "appearance.assign", json!({"body":"C","faces":[[40,5,5]],"appearance":"ABS - Red"}));
+    let doc = s.doc.clone();
+    let history = (s.undo.len(), s.redo.len(), s.evaluations);
+    run(&mut s, "select.same_look", json!({"body":"A"}));
+    assert_eq!(s.selection.len(), 3);
+    let point = solidcraft_geom::Vec3::new(40.0, 5.0, 5.0);
+    let face = solidcraft_doc::appearance::face_index_at(s.world_state().body("C").unwrap(), point).unwrap();
+    run(&mut s, "select.set", json!({"items":[Sel::Face {body:"C".into(),index:face,point}]}));
+    run(&mut s, "select.same_look", json!({}));
+    assert_eq!(s.selection.len(), 3);
+    run(&mut s, "select.same_look", json!({"body":"C"}));
+    assert_eq!(s.selection, [Sel::Body { name: "C".into() }]);
+    let selected = s.selection.clone();
+    // Session treats null parameters as the command's empty/default object.
+    run(&mut s, "select.same_look", Value::Null);
+    for params in [
+        json!([]),
+        json!({"body":"missing"}),
+        json!({"body":"A","face":u64::MAX}),
+        json!({"body":"A","face":-1}),
+        json!({"body":1}),
+        json!({"body":"A","extra":true}),
+    ] {
+        assert!(s.execute("select.same_look", &params).is_err(), "{params}");
+        assert_eq!(s.selection, selected);
+    }
+    assert!(std::sync::Arc::ptr_eq(&doc, &s.doc));
+    assert_eq!(history, (s.undo.len(), s.redo.len(), s.evaluations));
 }

@@ -5,11 +5,14 @@ mod actions;
 mod assistant;
 mod assistant_entry;
 mod checks;
+#[cfg(test)]
+pub(crate) use checks::tests::{raster as test_raster, textures_update as test_textures_update};
 mod choice;
 mod color;
 mod confirm;
 pub mod container;
 mod disclosure;
+mod drag;
 mod fields;
 mod file_view;
 mod history;
@@ -17,6 +20,9 @@ mod layout;
 mod look_chain;
 mod menu;
 mod metrics;
+mod navigation;
+mod navigation_menu;
+mod navigation_settings;
 pub(crate) mod panel;
 mod preferences;
 mod preferences_assistant;
@@ -32,6 +38,7 @@ mod stages;
 mod status;
 mod table;
 mod text;
+mod tree;
 mod value_focus;
 
 pub(crate) use actions::*;
@@ -44,6 +51,7 @@ pub(crate) use color::*;
 pub(crate) use confirm::{Confirm, Tone};
 pub use container::{Container, DockEdges, Edge, Surface};
 pub(crate) use disclosure::*;
+pub(crate) use drag::*;
 pub use fields::cell_editor;
 pub(crate) use fields::*;
 pub(crate) use file_view::{FileView, RecentRow, RecoveryMessage, SampleCard};
@@ -52,6 +60,9 @@ pub(crate) use layout::*;
 pub use look_chain::{LookStep, look_chain};
 pub(crate) use menu::{Menu, MenuItem, rename_menu, workspace_menu};
 pub(crate) use metrics::{ContentWidth, header_height, row_height, table_row_height};
+pub(crate) use navigation::*;
+pub(crate) use navigation_menu::*;
+pub(crate) use navigation_settings::*;
 pub(crate) use panel::{ComputeStatus, FeatureOptions, Panel, Part, WindowPage, WorkspaceOptions, panel_header_hover};
 pub use panel::{DialogButtons, Window};
 #[cfg(test)]
@@ -68,6 +79,7 @@ pub use sphere::{FinishKind, Sphere, sphere_thumbnail};
 pub(crate) use stages::{StageAction, StageBar};
 pub(crate) use status::*;
 pub(crate) use table::*;
+pub(crate) use tree::*;
 pub(crate) use value_focus::*;
 
 #[cfg(test)]

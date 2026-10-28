@@ -80,7 +80,11 @@ pub static COMMANDS: &[CommandSpec] = &[
     CommandSpec::new("select.set", "Select", select_set).icon("select")
         .noundo()
         .params("items: [{type: body|edge|face|feature|sketch_curve|sketch_point|profile, …}], add?: bool"),
+    CommandSpec::new("select.filter", "Selection filter", select_filter).icon("select").noundo().doc_only()
+        .params("mode: body|face|component → validated UI pick granularity; headless echo only, no document edits or undo"),
     CommandSpec::new("select.clear", "Clear Selection", select_clear).icon("select").noundo(),
+    CommandSpec::new("select.same_look", "Select Same Look", select_same_look).icon("select").noundo().doc_only()
+        .params("body?: world body name, face?: face index; defaults to the current body/face selection → selects objects using the resolved appearance"),
 ];
 
 fn undo(s: &mut Session, _p: &Value) -> Result<Value> {
@@ -1143,6 +1147,13 @@ fn edit_feature(s: &mut Session, p: &Value) -> Result<Value> {
             nf.edge_names = solidcraft_doc::hole_reference::reference_edge_names(&s.model.state_before(id), position.0, &edges(a));
         }
     }
+    // New reference edges for a cylinder (#6380): likewise.
+    if let (FeatureKind::Cylinder { references: a, base, .. }, FeatureKind::Cylinder { references: b, .. }) = (&nf.kind, &f.kind) {
+        let edges = |r: &[solidcraft_doc::HoleReference]| r.iter().map(|x| x.edge.0).collect::<Vec<_>>();
+        if edges(a) != edges(b) {
+            nf.edge_names = solidcraft_doc::hole_reference::cylinder_edge_names(&s.model.state_before(id), base, a);
+        }
+    }
     // New bend edges for a conversion: the names of the body's edges there now.
     if let (FeatureKind::SheetConvert { bends: a, body, .. }, FeatureKind::SheetConvert { bends: b, body: was, .. }) = (&nf.kind, &f.kind)
         && (a != b || body != was)
@@ -1192,6 +1203,57 @@ fn select_set(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"selected": s.selection.len()}))
 }
 
+fn select_filter(_s: &mut Session, p: &Value) -> Result<Value> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        mode: String,
+    }
+    let request: Request = serde_json::from_value(p.clone()).map_err(|e| bad("select.filter", e.to_string()))?;
+    if !matches!(request.mode.as_str(), "body" | "face" | "component") {
+        return Err(bad("select.filter", "mode must be body, face or component"));
+    }
+    Ok(json!({"mode": request.mode}))
+}
+
+fn select_same_look(s: &mut Session, p: &Value) -> Result<Value> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        body: Option<String>,
+        face: Option<usize>,
+    }
+    let request: Request = serde_json::from_value(p.clone()).map_err(|e| bad("select.same_look", e.to_string()))?;
+    let selected = s.selection.last();
+    let name = request
+        .body
+        .as_deref()
+        .or(match selected {
+            Some(Sel::Body { name }) => Some(name.as_str()),
+            Some(Sel::Face { body, .. }) => Some(body.as_str()),
+            _ => None,
+        })
+        .ok_or_else(|| bad("select.same_look", "select an object or face"))?;
+    let state = s.world_state();
+    let body = state.body(name).ok_or_else(|| bad("select.same_look", "unknown object"))?;
+    let face = request.face.or(match selected {
+        Some(Sel::Face { body, index, .. }) if request.body.is_none() && body == name => Some(*index),
+        _ => None,
+    });
+    if let Some(face) = face
+        && face >= body.body.face_count()
+    {
+        return Err(bad("select.same_look", "unknown face"));
+    }
+    let look = face.map_or_else(|| s.doc.model_display_look(body), |face| s.doc.model_face_look(body, face));
+    let items: Vec<_> =
+        state.bodies.iter().filter(|b| s.doc.model_used_looks(b).contains(&look)).take(10_001).map(|b| Sel::Body { name: b.name.clone() }).collect();
+    if items.len() > 10_000 {
+        return Err(bad("select.same_look", "too many objects"));
+    }
+    select_set(s, &json!({"items":items}))
+}
+
 fn select_clear(s: &mut Session, _p: &Value) -> Result<Value> {
     s.selection.clear();
     s.revision += 1;
@@ -1215,14 +1277,15 @@ fn newly_broken(before: &solidcraft_doc::Model, after: &solidcraft_doc::Model) -
 /// (the model of `after_doc`). With the history rolled back, the features after the marker are
 /// evaluated too, on copies of the models (which share their cache): a delete made in the
 /// rolled-back history that breaks them says so before it is made, rather than leaving error marks
-/// that only show at the end of the timeline (#3471).
+/// that only show at the end of the timeline (#3471). A change that leaves them the same inputs
+/// needs no such evaluation ([`only_constraints_changed`]).
 pub(super) fn newly_broken_in_history(
     before_doc: &solidcraft_doc::Document,
     before: &solidcraft_doc::Model,
     after_doc: &solidcraft_doc::Document,
     after: &solidcraft_doc::Model,
 ) -> Vec<(String, String)> {
-    if before_doc.marker.is_none() && after_doc.marker.is_none() {
+    if (before_doc.marker.is_none() && after_doc.marker.is_none()) || only_constraints_changed(before_doc, before, after_doc, after) {
         return newly_broken(before, after);
     }
     let whole = |doc: &solidcraft_doc::Document, model: &solidcraft_doc::Model| {
@@ -1233,6 +1296,50 @@ pub(super) fn newly_broken_in_history(
         model
     };
     newly_broken(&whole(before_doc, before), &whole(after_doc, after))
+}
+
+/// Whether `after_doc` differs from `before_doc` only in sketch constraints and dimensions (and
+/// model parameters nothing uses any more), every sketch whose constraints changed solving to
+/// the same geometry, profiles and ends as before. The features after the marker are then built
+/// from the same inputs, so evaluating the whole history twice would find nothing new (#7253):
+/// deleting one dimension of a sketch with a long rolled-back history after it took minutes.
+fn only_constraints_changed(
+    before_doc: &solidcraft_doc::Document,
+    before: &solidcraft_doc::Model,
+    after_doc: &solidcraft_doc::Document,
+    after: &solidcraft_doc::Model,
+) -> bool {
+    let without_constraints = |doc: &solidcraft_doc::Document| {
+        let mut doc = doc.clone();
+        for f in &mut doc.features {
+            if let FeatureKind::Sketch { sketch, .. } = &mut f.kind {
+                sketch.constraints.clear();
+            }
+        }
+        doc
+    };
+    let (mut b, a) = (without_constraints(before_doc), without_constraints(after_doc));
+    if b.params.iter().any(|p| !a.params.contains(p) && (!p.model || !after_doc.param_users(&p.name).is_empty())) {
+        return false;
+    }
+    b.params.retain(|p| a.params.contains(p));
+    if b != a {
+        return false;
+    }
+    // What a later feature reads of a sketch: the solved geometry, its plane, profiles and ends.
+    let solved = |model: &solidcraft_doc::Model, id: u64| {
+        let r = model.result(id).filter(|r| !r.skipped && r.error.is_none())?;
+        let s = r.state.sketch(id)?;
+        let mut sketch = s.sketch.clone();
+        sketch.constraints.clear();
+        Some((s.plane, sketch, serde_json::to_value(&s.profiles).ok()?, s.ends.clone(), s.report.ok()))
+    };
+    before_doc.features.iter().zip(&after_doc.features).all(|(fb, fa)| match (&fb.kind, &fa.kind) {
+        (FeatureKind::Sketch { sketch: sb, .. }, FeatureKind::Sketch { sketch: sa, .. }) if sb.constraints != sa.constraints => {
+            solved(before, fb.id).is_some_and(|x| solved(after, fa.id).is_some_and(|y| x == y))
+        }
+        _ => true,
+    })
 }
 
 fn reorder(s: &mut Session, p: &Value) -> Result<Value> {

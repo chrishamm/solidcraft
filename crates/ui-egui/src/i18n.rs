@@ -300,6 +300,14 @@ pub fn tr(id: &str) -> &str {
 pub fn tr_label(label: &str) -> &str {
     CURRENT.with(|current| current.get().label(label))
 }
+
+/// Every English catalog entry `(id, text)`, for Preferences search to match a translation
+/// back to the words it was written in.
+pub(crate) fn each_english_message(mut f: impl FnMut(&str, &str)) {
+    for (id, text) in ENGLISH.messages() {
+        f(id, text);
+    }
+}
 pub fn format(id: &str, args: &[(&str, &str)]) -> String {
     CURRENT.with(|current| current.get().format(id, args))
 }
@@ -678,7 +686,6 @@ mod tests {
                 "Strip",
                 "Pick",
                 "Component",
-                "Product picking is not supported yet.",
                 "The live preview shows direct light only and no shadows.",
             ] {
                 assert_ne!(locale.label(label), label, "{language}: {label}");
@@ -688,6 +695,18 @@ mod tests {
             // rather than requiring its spelling to differ from English.
             assert!(locale.0.messages().contains_key("toolbar.render_studio"));
             assert_eq!(locale.label("STUDIO"), locale.text("toolbar.render_studio"));
+            for id in [
+                "render.pick_label",
+                "render.pick_body",
+                "render.pick_face",
+                "render.pick_component",
+                "render.pick_help",
+                "render.tree_browser",
+                "render.tree_search",
+                "render.tree_more",
+            ] {
+                assert_ne!(locale.text(id), Locale::for_language("en").text(id), "{language}: {id}");
+            }
             let session = solidcraft_engine::Session::default();
             for command in solidcraft_engine::command_specs().into_iter().filter(|c| c.planned.is_some() && crate::workspace::render_tab(c.tab)) {
                 assert_ne!(locale.label(command.label), command.label, "{language}: {}", command.id);
